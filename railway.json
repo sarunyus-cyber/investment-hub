@@ -4,8 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "echo 'Investment Hub deployed — managed by Railway Cron'",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
+    "startCommand": "/app/venv/bin/python morning_briefing.py",
+    "restartPolicyType": "NEVER"
   }
 }
