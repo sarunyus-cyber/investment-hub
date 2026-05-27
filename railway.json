@@ -4,7 +4,6 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "/app/venv/bin/python evening_research.py",
     "restartPolicyType": "NEVER"
   }
 }
