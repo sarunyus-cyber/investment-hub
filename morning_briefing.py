@@ -117,9 +117,8 @@ def call_ceo(agent_reports: dict) -> str:
     sections = ""
     for key, report in agent_reports.items():
         m = AGENT_META.get(key, {"emoji": "•", "name": key})
-        # ตัดให้เหลือแค่ 800 chars ต่อ agent เพื่อประหยัด memory
-        short = report[:800] + "..." if len(report) > 800 else report
-        sections += f"\n\n{'─'*40}\n{m['emoji']} {m['name']}\n{'─'*40}\n{short}"
+        short = report[:400] if len(report) > 400 else report
+        sections += f"\n{m['emoji']} {m['name']}: {short}\n"
 
     bkk = (datetime.datetime.utcnow() + datetime.timedelta(hours=7))
     bkk_date = bkk.strftime("%d %B %Y")
@@ -172,7 +171,7 @@ Risk Score: X/10 | Confidence: X/10
 
     try:
         res = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-5",
             max_tokens=1024,
             system=CEO_SYSTEM,
             messages=[{"role": "user", "content": prompt}]
