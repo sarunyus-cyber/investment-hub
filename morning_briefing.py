@@ -171,7 +171,7 @@ Risk Score: X/10 | Confidence: X/10
     try:
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=2000,
+            max_tokens=1024,
             system=CEO_SYSTEM,
             messages=[{"role": "user", "content": prompt}]
         )
