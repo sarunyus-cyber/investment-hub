@@ -246,7 +246,35 @@ def save_to_gdocs(ceo_report, agent_reports, date_str):
         docs_service  = build("docs",  "v1", credentials=creds)
         drive_service = get_gdrive_service()
 
-        # Create new Google Doc
+        # Build full text content first
+        bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+        timestamp = bkk.strftime("%d %B %Y %H:%M Bangkok")
+
+        lines = []
+        lines.append(f"INVESTMENT BRIEFING {date_str}")
+        lines.append(f"{timestamp}")
+        lines.append("")
+        lines.append("=" * 60)
+        lines.append("CEO SUMMARY (Agent 7)")
+        lines.append("=" * 60)
+        lines.append("")
+        lines.append(ceo_report)
+        lines.append("")
+        lines.append("=" * 60)
+        lines.append("AGENT REPORTS")
+        lines.append("=" * 60)
+        lines.append("")
+
+        for key, report in agent_reports.items():
+            m = AGENT_META.get(key, {"emoji": "-", "name": key})
+            lines.append(f"--- {m['name']} ---")
+            lines.append("")
+            lines.append(report)
+            lines.append("")
+
+        full_text = "\n".join(lines)
+
+        # Create Google Doc with title only
         doc_title = f"Investment Briefing {date_str}"
         doc = docs_service.documents().create(body={"title": doc_title}).execute()
         doc_id  = doc["documentId"]
@@ -254,58 +282,25 @@ def save_to_gdocs(ceo_report, agent_reports, date_str):
 
         # Move to Investment Reports folder
         if GDRIVE_FOLDER_ID and drive_service:
-            drive_service.files().update(
-                fileId=doc_id,
-                addParents=GDRIVE_FOLDER_ID,
-                removeParents="root",
-                fields="id,parents"
-            ).execute()
+            try:
+                drive_service.files().update(
+                    fileId=doc_id,
+                    addParents=GDRIVE_FOLDER_ID,
+                    removeParents="root",
+                    fields="id,parents"
+                ).execute()
+            except Exception as e:
+                print(f"[Docs] Move error (non-fatal): {e}")
 
-        # Build document content
-        bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
-        timestamp = bkk.strftime("%d %B %Y เวลา %H:%M น. (Bangkok)")
+        # Insert all text at index 1 in ONE request — avoids Thai char index issues
+        docs_service.documents().batchUpdate(
+            documentId=doc_id,
+            body={"requests": [
+                {"insertText": {"location": {"index": 1}, "text": full_text}}
+            ]}
+        ).execute()
 
-        requests = []
-        idx = 1  # current insertion index
-
-        def insert_text(text, style="NORMAL_TEXT"):
-            nonlocal idx
-            requests.append({"insertText": {"location": {"index": idx}, "text": text}})
-            end = idx + len(text)
-            if style != "NORMAL_TEXT":
-                requests.append({"updateParagraphStyle": {
-                    "range": {"startIndex": idx, "endIndex": end},
-                    "paragraphStyle": {"namedStyleType": style},
-                    "fields": "namedStyleType"
-                }})
-            idx = end
-
-        # Title
-        insert_text(f"Investment Briefing\n", "TITLE")
-        insert_text(f"{timestamp}\n", "SUBTITLE")
-        insert_text("\n")
-
-        # CEO Summary section
-        insert_text("CEO Summary (Agent 7)\n", "HEADING_1")
-        insert_text(ceo_report + "\n\n")
-
-        # Divider text
-        insert_text("=" * 60 + "\n\n")
-
-        # Each agent report
-        for key, report in agent_reports.items():
-            m = AGENT_META.get(key, {"emoji": "-", "name": key})
-            insert_text(f"{m['emoji']} {m['name']}\n", "HEADING_2")
-            insert_text(report + "\n\n")
-
-        # Execute all insertions in one batch
-        if requests:
-            docs_service.documents().batchUpdate(
-                documentId=doc_id,
-                body={"requests": requests}
-            ).execute()
-
-        print(f"[Docs] Created: {doc_title} → {doc_url}")
+        print(f"[Docs] Created: {doc_title} -> {doc_url}")
         return doc_url
 
     except Exception as e:
