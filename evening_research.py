@@ -127,23 +127,100 @@ def save_to_gdrive(content, filename):
         print(f"[Drive] Save error: {e}")
         return ""
 
-# ─── RUN AGENT ────────────────────────────────────────────────────────────────
+# ─── RUN AGENT WITH WEB SEARCH ───────────────────────────────────────────────
 def run_agent(key):
     a = AGENTS[key]
-    print(f"[{a['emoji']}] Running {a['name']}...")
+    print(f"[{a['emoji']}] Running {a['name']} (with web search)...")
+    today = datetime.datetime.utcnow().strftime("%d/%m/%Y")
     try:
+        # Enable web_search tool for real-time data
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=1500,
+            max_tokens=2000,
             system=a["system"],
-            messages=[{"role": "user", "content": a["prompt"] + f"\nDate: {datetime.datetime.utcnow().strftime('%d/%m/%Y')} UTC"}]
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Today is {today} Bangkok time.\n"
+                    f"IMPORTANT: Use web_search to find CURRENT real-time data before analyzing.\n"
+                    f"Search for today\'s actual prices, news, and market data first.\n\n"
+                    f"{a['prompt']}"
+                )
+            }]
         )
-        text = res.content[0].text
-        print(f"[{a['emoji']}] Done ({len(text)} chars)")
-        return text
+
+        # Extract final text from response (may include tool_use blocks)
+        final_text = ""
+        for block in res.content:
+            if hasattr(block, "type"):
+                if block.type == "text":
+                    final_text += block.text
+        
+        # If agent used tools, run agentic loop until stop_reason == "end_turn"
+        messages = [{"role": "user", "content": (
+            f"Today is {today} Bangkok time.\n"
+            f"IMPORTANT: Use web_search to find CURRENT real-time data before analyzing.\n"
+            f"Search for today\'s actual prices, news, and market data first.\n\n"
+            f"{a['prompt']}"
+        )}]
+        
+        loop_count = 0
+        while res.stop_reason == "tool_use" and loop_count < 5:
+            loop_count += 1
+            # Build tool results
+            tool_results = []
+            for block in res.content:
+                if hasattr(block, "type") and block.type == "tool_use":
+                    # Find tool_result in content
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "Search completed"
+                    })
+            
+            # Add assistant response and tool results to messages
+            messages.append({"role": "assistant", "content": res.content})
+            if tool_results:
+                messages.append({"role": "user", "content": tool_results})
+            
+            # Continue the conversation
+            res = client.messages.create(
+                model="claude-sonnet-4-5",
+                max_tokens=2000,
+                system=a["system"],
+                tools=[{"type": "web_search_20250305", "name": "web_search"}],
+                messages=messages
+            )
+            
+            # Extract text from new response
+            for block in res.content:
+                if hasattr(block, "type") and block.type == "text":
+                    final_text += block.text
+
+        if not final_text:
+            # Fallback: extract any text
+            for block in res.content:
+                if hasattr(block, "type") and block.type == "text":
+                    final_text += block.text
+
+        print(f"[{a['emoji']}] Done ({len(final_text)} chars, {loop_count} search loops)")
+        return final_text if final_text else "[No response]"
+
     except Exception as e:
         print(f"[{a['emoji']}] ERROR: {e}")
-        return f"[Error: {e}]"
+        # Fallback without web search
+        try:
+            print(f"[{a['emoji']}] Retrying without web search...")
+            res2 = client.messages.create(
+                model="claude-sonnet-4-5",
+                max_tokens=1500,
+                system=a["system"],
+                messages=[{"role": "user", "content": a["prompt"] + f"\nDate: {today}"}]
+            )
+            return res2.content[0].text
+        except Exception as e2:
+            return f"[Error: {e2}]"
 
 # ─── CEO ──────────────────────────────────────────────────────────────────────
 def call_ceo(agent_reports):
