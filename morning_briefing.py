@@ -170,6 +170,10 @@ Risk Score: X/10 | Confidence: X/10
 *ข้อมูลเพื่อการศึกษา ไม่ใช่คำแนะนำการลงทุน*"""
 
     try:
+        print(f"[🎯] Calling API with model claude-sonnet-4-5...")
+        print(f"[🎯] Prompt length: {len(prompt)} chars")
+        import sys
+        sys.stdout.flush()
         res = client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=1024,
