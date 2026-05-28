@@ -117,7 +117,9 @@ def call_ceo(agent_reports: dict) -> str:
     sections = ""
     for key, report in agent_reports.items():
         m = AGENT_META.get(key, {"emoji": "•", "name": key})
-        sections += f"\n\n{'─'*40}\n{m['emoji']} {m['name']}\n{'─'*40}\n{report}"
+        # ตัดให้เหลือแค่ 800 chars ต่อ agent เพื่อประหยัด memory
+        short = report[:800] + "..." if len(report) > 800 else report
+        sections += f"\n\n{'─'*40}\n{m['emoji']} {m['name']}\n{'─'*40}\n{short}"
 
     bkk = (datetime.datetime.utcnow() + datetime.timedelta(hours=7))
     bkk_date = bkk.strftime("%d %B %Y")
