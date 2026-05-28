@@ -151,28 +151,66 @@ def call_ceo(agent_reports):
     sections = ""
     for key, report in agent_reports.items():
         m = AGENT_META.get(key, {"emoji": "-", "name": key})
-        short = report[:400] if len(report) > 400 else report
+        short = report[:600] if len(report) > 600 else report
         sections += f"\n{m['emoji']} {m['name']}: {short}\n"
 
     bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
     bkk_date = bkk.strftime("%d %B %Y")
 
-    prompt = f"""Summarize as Thai-language Morning Briefing, max 1 A4 page, from reports:{sections}
+    prompt = f"""สร้าง Morning Briefing ภาษาไทย จากรายงานต่อไปนี้:{sections}
 
-Format:
+สำคัญมาก: แยกการวิเคราะห์ S&P500 กับ Bitcoin ออกจากกันให้ชัดเจน ห้ามปนกัน
+ใช้รูปแบบต่อไปนี้อย่างเคร่งครัด:
+
 ## Morning Briefing {bkk_date}
-### Summary (2 sentences)
-### Bullish (2) / Bearish (2) / Watch (1)
-### Portfolio (Conservative/Moderate/Aggressive table)
-### Action Plan (3 items)
-### Final Decision: BUY/HOLD/SELL + Risk + Confidence
-Write in Thai. End with disclaimer."""
+
+### สรุปภาพรวม
+(3-4 ประโยค อธิบายสถานการณ์ตลาดโดยรวมวันนี้)
+
+### S&P500 Analysis
+**แนวโน้ม:** (Bullish/Bearish/Sideways พร้อมเหตุผล)
+**ปัจจัยบวก:** (2-3 ข้อ เฉพาะ S&P500)
+**ปัจจัยลบ:** (2-3 ข้อ เฉพาะ S&P500)
+**แนวรับ-แนวต้าน:** (ระบุระดับราคา)
+**Signal:** BUY/HOLD/SELL
+
+### Bitcoin Analysis
+**แนวโน้ม:** (Bullish/Bearish/Sideways พร้อมเหตุผล)
+**ปัจจัยบวก:** (2-3 ข้อ เฉพาะ Bitcoin)
+**ปัจจัยลบ:** (2-3 ข้อ เฉพาะ Bitcoin)
+**แนวรับ-แนวต้าน:** (ระบุระดับราคา)
+**Signal:** BUY/HOLD/SELL
+
+### จุดสังเกต (Watch)
+(2-3 เหตุการณ์ที่ต้องจับตาในสัปดาห์นี้)
+
+### แนะนำพอร์ต
+| สินทรัพย์ | Conservative | Moderate | Aggressive |
+|-----------|-------------|----------|------------|
+| S&P500    | X%          | X%       | X%         |
+| Bitcoin   | X%          | X%       | X%         |
+| Gold      | X%          | X%       | X%         |
+| Bond      | X%          | X%       | X%         |
+| Cash      | X%          | X%       | X%         |
+
+### แผนปฏิบัติการ
+1. **S&P500:** (ระบุชัดเจนว่า เพิ่ม/ลด/ถือ กี่% และเหตุผล)
+2. **Bitcoin:** (ระบุชัดเจนว่า เพิ่ม/ลด/ถือ กี่% และเหตุผล)
+3. **Gold/Bond/Cash:** (ระบุชัดเจนว่า ปรับสัดส่วนอย่างไร)
+
+### Final Decision
+**S&P500:** BUY/HOLD/SELL (เหตุผล 1 ประโยค)
+**Bitcoin:** BUY/HOLD/SELL (เหตุผล 1 ประโยค)
+**Risk Score:** X/10 | **Confidence:** X/10
+
+---
+*คำเตือน: ข้อมูลนี้เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน การลงทุนมีความเสี่ยง ผู้ลงทุนควรศึกษาข้อมูลก่อนตัดสินใจ*"""
 
     try:
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=1024,
-            system="You are a CEO summarizing investment reports in Thai, concise, max 1 A4 page.",
+            max_tokens=2048,
+            system="คุณคือ CEO ของทีมวิเคราะห์การลงทุนระดับสถาบัน สรุปรายงานเป็นภาษาไทย แยก S&P500 กับ Bitcoin ชัดเจน ห้ามปนกัน ระบุสินทรัพย์และ action ให้ชัดเจนทุกข้อ",
             messages=[{"role": "user", "content": prompt}]
         )
         text = res.content[0].text
