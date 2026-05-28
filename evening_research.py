@@ -264,7 +264,7 @@ def run_agent(key):
     try:
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=2000,
+            max_tokens=1200,
             system=a["system"],
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=messages
@@ -299,7 +299,7 @@ def run_agent(key):
 
             res = client.messages.create(
                 model="claude-sonnet-4-5",
-                max_tokens=2000,
+                max_tokens=1200,
                 system=a["system"],
                 tools=[{"type": "web_search_20250305", "name": "web_search"}],
                 messages=messages
@@ -385,7 +385,7 @@ def call_ceo(agent_reports):
     try:
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=2048,
+            max_tokens=1500,
             system="คุณคือ CEO ของทีมวิเคราะห์การลงทุนระดับสถาบัน สรุปรายงานเป็นภาษาไทย แยก S&P500 กับ Bitcoin ชัดเจน ห้ามปนกัน ระบุสินทรัพย์และ action ให้ชัดเจนทุกข้อ",
             messages=[{"role": "user", "content": prompt}]
         )
@@ -521,7 +521,7 @@ def main():
     reports = {}
     for key in AGENTS:
         reports[key] = run_agent(key)
-        time.sleep(2)
+        time.sleep(15)  # รอ 15 วินาทีระหว่าง Agent เพื่อไม่ให้ exceed rate limit
 
     date_str = bkk.strftime("%Y-%m-%d")
     cache = json.dumps({"research_date": datetime.datetime.utcnow().isoformat(), "reports": reports}, ensure_ascii=False, indent=2)
