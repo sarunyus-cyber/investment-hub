@@ -1,6 +1,7 @@
 """
-Evening Research Job — รัน Agents 1-5 ค้นข้อมูล แล้ว exit
+Evening Research Job — รัน Agents 1-6 ค้นข้อมูล แล้ว exit
 Railway Cron: 0 10 * * *  (17:00 Bangkok = 10:00 UTC)
+Focus: S&P500 + Bitcoin (Primary), Global Macro (Secondary)
 """
 import anthropic
 import json
@@ -8,113 +9,181 @@ import datetime
 import os
 import sys
 import time
-import pickle
 import io
+import base64
 from pathlib import Path
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 
-# ─── CONFIG ─────────────────────────────────────────────────────────────────
+# ─── CONFIG ──────────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 GDRIVE_FOLDER_ID  = os.environ.get("GDRIVE_FOLDER_ID", "")
-GDRIVE_TOKEN_JSON = os.environ.get("GDRIVE_TOKEN_JSON", "")   # base64-encoded token
+GDRIVE_TOKEN_JSON = os.environ.get("GDRIVE_TOKEN_JSON", "")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# ─── AGENTS ──────────────────────────────────────────────────────────────────
+GLOBAL_RULES = """
+GLOBAL RULES (ปฏิบัติตามเสมอ):
+- Focus หลัก: S&P500 และ Bitcoin
+- ใช้ข้อมูลจริงและเหตุการณ์ตลาดล่าสุด
+- แยกข้อเท็จจริงออกจากความเห็น
+- ระบุ Confidence Score (1-10) ทุกครั้ง
+- ระบุ Risk Score (1-10) ทุกครั้ง
+- แยก Short-term (1-4 สัปดาห์) / Mid-term (3-12 เดือน) / Long-term (1-5 ปี)
+- คำนึงถึง: Fed, ดอกเบี้ย, Inflation, GDP, Employment, Liquidity,
+  Geopolitics, Earnings, ETF flows, Bond yields, USD, Gold, Oil
+"""
+
 AGENTS = {
-    "journalist": {
+    "news": {
         "id": 1, "emoji": "📰",
-        "name": "Agent 1 — นักข่าวนักค้นคว้า",
-        "system": """คุณคือนักข่าวมืออาชีพที่เชี่ยวชาญด้านข่าวสารที่มีผลต่อการลงทุน
-ติดตามข่าวการเมืองโลก เศรษฐกิจ สงคราม และ Corporate events
-รายงานแบบ bullet points กระชับ ชัดเจน ระบุความสำคัญต่อตลาด""",
-        "prompt": """ค้นหาและรวบรวมข่าวสำคัญวันนี้ที่มีผลต่อการลงทุน:
-1. ข่าวการเมืองโลก 3 เรื่องสำคัญ (ระบุผลกระทบต่อตลาด)
-2. ข่าวเศรษฐกิจ/นโยบายการเงิน 3 เรื่อง (Fed, GDP, Inflation)
-3. ความขัดแย้ง/ความเสี่ยงภูมิรัฐศาสตร์
-4. ข่าว Corporate สำคัญ (Earnings, M&A)
-5. สรุป Market Sentiment: 🟢 Bullish / 🔴 Bearish / 🟡 Mixed
-รายงานภาษาไทย"""
+        "name": "Agent 1 — News Researcher",
+        "system": f"""คุณคือนักข่าวการเงินระดับโลกและนักวิจัยข่าวกรองตลาด
+{GLOBAL_RULES}
+หน้าที่: ค้นหาข่าวการเงินล่าสุดที่กระทบ S&P500 และ Bitcoin
+ห้ามวิเคราะห์เชิง Technical""",
+        "prompt": """รายงานข่าวสำคัญวันนี้ในรูปแบบ:
+
+## ข่าวสำคัญ
+(3-5 ข่าวที่กระทบ S&P500 และ Bitcoin มากที่สุด)
+
+## ผลกระทบต่อตลาด
+(อธิบายว่าแต่ละข่าวกระทบอย่างไร)
+
+## ปัจจัย Bullish 🟢
+## ปัจจัย Bearish 🔴
+## Market Sentiment
+## Confidence Score: X/10"""
     },
     "broker": {
         "id": 2, "emoji": "📊",
-        "name": "Agent 2 — Broker มืออาชีพ",
-        "system": """คุณคือ Broker มืออาชีพที่วิเคราะห์ตลาดหุ้นทั่วโลก
-เชี่ยวชาญ: US (S&P500, NASDAQ), China, India, Vietnam, Thailand SET Index
-รวมถึง Crypto และ Commodity""",
-        "prompt": """วิเคราะห์ภาพรวมตลาดหุ้นทั่วโลกวันนี้:
-1. US Markets: S&P500, NASDAQ — แนวโน้มและ key levels
-2. Asia: China SSE, India SENSEX, Vietnam VN-Index, Japan Nikkei
-3. ไทย: SET Index — Foreign Flow และแนวโน้ม
-4. Crypto: Bitcoin, Ethereum
-5. Commodity: Gold, Oil
-6. Sector ที่ Outperform / Underperform
-รายงานภาษาไทย พร้อม Sentiment แต่ละตลาด"""
+        "name": "Agent 2 — Professional Broker",
+        "system": f"""คุณคือนักกลยุทธ์ตลาดข้ามสินทรัพย์ระดับสถาบัน
+{GLOBAL_RULES}
+หน้าที่: วิเคราะห์พฤติกรรมตลาดในเชิง Fund Flow และ Sentiment
+ห้ามใช้ Technical Indicators""",
+        "prompt": """วิเคราะห์ภาพรวมตลาดในรูปแบบ:
+
+## Market Overview
+(S&P500, Nasdaq, Bitcoin, Ethereum, Gold, Oil, Bonds, USD)
+
+## Sector Rotation
+(Sector ไหนเงินไหลเข้า/ออก)
+
+## Institutional Flow
+(สถาบันกำลังทำอะไร)
+
+## Risk-On / Risk-Off
+## Bullish Signals 🟢
+## Bearish Signals 🔴
+## Confidence Score: X/10"""
     },
     "technical": {
         "id": 3, "emoji": "📈",
         "name": "Agent 3 — Technical Analyst",
-        "system": """คุณคือ Technical Analyst ผู้เชี่ยวชาญการวิเคราะห์กราฟ
-ใช้: MACD, RSI, EMA (20/50/200), Bollinger Bands, Elliott Wave, Fibonacci
-วิเคราะห์ Trend, Momentum, Pattern และ Entry/Exit points""",
-        "prompt": """วิเคราะห์ Technical ของสินทรัพย์สำคัญวันนี้:
-1. S&P500 — Trend, Support/Resistance, Indicator signals
-2. SET Index — EMA crossover, Volume, แนวโน้มกราฟ
-3. Gold — Technical setup
-4. Bitcoin — Technical setup
-5. Market Structure สรุป: Uptrend / Downtrend / Sideways
-6. Key Levels ที่ต้องจับตา
-7. Signal Summary: BUY 🟢 / SELL 🔴 / NEUTRAL 🟡
-รายงานภาษาไทย"""
+        "system": f"""คุณคือ Technical Analyst ระดับสถาบันผู้เชี่ยวชาญการวิเคราะห์กราฟ
+{GLOBAL_RULES}
+หน้าที่: วิเคราะห์ S&P500 และ Bitcoin ด้วย Technical Analysis เท่านั้น
+ห้ามวิเคราะห์ Macroeconomics""",
+        "prompt": """วิเคราะห์ Technical ของ S&P500 และ Bitcoin:
+
+## Market Structure
+## Key Support Levels
+## Key Resistance Levels
+## Momentum Analysis (RSI, MACD, EMA)
+## Trend Direction
+
+## Short-Term Signal (1-4 สัปดาห์)
+## Mid-Term Signal (3-12 เดือน)
+## Long-Term Signal (1-5 ปี)
+
+## สรุป: BUY 🟢 / SELL 🔴 / NEUTRAL 🟡
+## Confidence Score: X/10"""
     },
-    "economist": {
+    "macro": {
         "id": 4, "emoji": "🌐",
-        "name": "Agent 4 — ที่ปรึกษาเศรษฐกิจโลก",
-        "system": """คุณคือนักเศรษฐศาสตร์ระดับโลก วิเคราะห์ Macro Economics
-เชี่ยวชาญ Monetary Policy, Business Cycle, Global Trade, Recession indicators
-ประเมินระยะสั้น (1-3 เดือน), กลาง (3-12 เดือน), ยาว (1-3 ปี)""",
-        "prompt": """ประเมินสถานการณ์เศรษฐกิจโลกปัจจุบัน:
-1. ภาพรวมเศรษฐกิจโลก: Expansion / Slowdown / Recession?
-2. สหรัฐฯ: GDP, Job market, Inflation outlook
-3. China: Economic health, Property, Export
-4. ยุโรป: ECB policy, Energy, Political risk
-5. ไทย: GDP, Export, Tourism, THB outlook
-6. ปัจจัยเสี่ยง Top 3
-7. Outlook ระยะสั้น/กลาง/ยาว — Risk: Low/Medium/High
-รายงานภาษาไทย"""
+        "name": "Agent 4 — Global Macro Advisor",
+        "system": f"""คุณคือนักกลยุทธ์เศรษฐกิจมหภาคระดับโลก
+{GLOBAL_RULES}
+หน้าที่: ประเมินสภาพเศรษฐกิจโลก ความเสี่ยงเชิงระบบ และเปรียบเทียบกับประวัติศาสตร์""",
+        "prompt": """ประเมินสภาพเศรษฐกิจโลกในรูปแบบ:
+
+## Economic Cycle Status
+(Expansion / Slowdown / Recession)
+
+## Bubble Risk Analysis
+## Recession Probability (%)
+
+## Liquidity Conditions
+## Historical Comparison
+(เปรียบกับ Dot-com / 2008 / COVID / Inflation cycles)
+
+## Key Systemic Risks
+
+## Macro Outlook
+- Short-term (1-4 สัปดาห์):
+- Mid-term (3-12 เดือน):
+- Long-term (1-5 ปี):
+
+## Confidence Score: X/10"""
     },
-    "financial_advisor": {
+    "portfolio": {
         "id": 5, "emoji": "💰",
-        "name": "Agent 5 — ที่ปรึกษาการเงิน",
-        "system": """คุณคือที่ปรึกษาการเงินและการลงทุนมืออาชีพ
-เชี่ยวชาญ Asset Allocation, Risk Management, Portfolio Management
-DCA Strategy, Hedging, Position Sizing, Drawdown Management""",
-        "prompt": """ประเมินและแนะนำการจัดการพอร์ตวันนี้:
-1. Market Risk Level วันนี้: 1-10
-2. Asset Allocation แนะนำ: Equity/Bond/Cash/Alt สัดส่วนที่เหมาะสม
-3. Sector/Asset ที่ควร Overweight / Underweight
-4. กลยุทธ์ Hedge ที่เหมาะสม
-5. Portfolio Action: Buy/Hold/Sell อะไรวันนี้?
-6. ระดับ Cash ที่ควรถือ
-7. คำแนะนำแยกตาม Risk: Conservative / Moderate / Aggressive
-รายงานภาษาไทย"""
+        "name": "Agent 5 — Portfolio Manager",
+        "system": f"""คุณคือผู้จัดการพอร์ตและที่ปรึกษาบริหารความเสี่ยงมืออาชีพ
+{GLOBAL_RULES}
+หน้าที่: สร้างกลยุทธ์การจัดสรรสินทรัพย์ระหว่าง S&P500, Bitcoin, Gold, Bonds, Cash""",
+        "prompt": """แนะนำการจัดพอร์ตในรูปแบบ:
+
+## Portfolio Allocation (สัดส่วนแนะนำ %)
+| สินทรัพย์ | Conservative | Moderate | Aggressive |
+|-----------|-------------|----------|------------|
+| S&P500    |             |          |            |
+| Bitcoin   |             |          |            |
+| Gold      |             |          |            |
+| Bonds     |             |          |            |
+| Cash      |             |          |            |
+
+## Risk Level: X/10
+## Suggested Rebalancing
+## Best Risk/Reward Opportunities
+## Assets To Reduce 🔴
+## Assets To Increase 🟢
+## Buy / Hold / Sell
+## Confidence Score: X/10"""
+    },
+    "council": {
+        "id": 6, "emoji": "🧠",
+        "name": "Agent 6 — Elite Investor Council",
+        "system": f"""คุณจำลองแนวคิดของนักลงทุนและผู้นำธุรกิจระดับโลก ได้แก่:
+Warren Buffett, Elon Musk, Jeff Bezos, Jensen Huang, Ken Griffin, Stephen Schwarzman
+{GLOBAL_RULES}
+หน้าที่: ทบทวนรายงานของทุก Agent วิเคราะห์เชิงกลยุทธ์ และท้าทายสมมติฐานที่อ่อนแอ
+ห้ามเห็นด้วยกับ Agent อื่นอย่างไม่มีเหตุผล""",
+        "prompt": """วิเคราะห์เชิงกลยุทธ์จากมุมมองของนักลงทุนระดับโลก:
+
+## Strategic Insights
+## Major Opportunities
+## Major Risks
+## Contrarian Perspectives
+(มุมมองที่ขัดแย้งกับ consensus)
+
+## What Smart Money May Be Doing
+## Key Conclusions
+## Confidence Score: X/10"""
     },
 }
 
-# ─── GOOGLE DRIVE ────────────────────────────────────────────────────────────
+# ─── GOOGLE DRIVE ─────────────────────────────────────────────────────────────
 GDRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 def get_gdrive_service():
-    """Get Drive service using token stored as env var (JSON string)."""
     if not GDRIVE_TOKEN_JSON:
-        print("[Drive] GDRIVE_TOKEN_JSON not set — skipping Drive save")
+        print("[Drive] GDRIVE_TOKEN_JSON not set — skipping")
         return None
     try:
-        import base64
         token_data = json.loads(base64.b64decode(GDRIVE_TOKEN_JSON).decode())
         creds = Credentials(
             token=token_data.get("token"),
@@ -148,7 +217,7 @@ def save_to_gdrive(content: str, filename: str) -> str:
         print(f"[Drive] Save error: {e}")
         return ""
 
-# ─── RUN AGENT ───────────────────────────────────────────────────────────────
+# ─── RUN AGENT ────────────────────────────────────────────────────────────────
 def run_agent(key: str) -> str:
     a = AGENTS[key]
     print(f"[{a['emoji']}] Running {a['name']}...")
@@ -159,7 +228,7 @@ def run_agent(key: str) -> str:
             system=a["system"],
             messages=[{
                 "role": "user",
-                "content": a["prompt"] + f"\n\nวันที่: {datetime.datetime.utcnow().strftime('%d/%m/%Y')} UTC"
+                "content": a["prompt"] + f"\n\nวันที่วิเคราะห์: {datetime.datetime.utcnow().strftime('%d/%m/%Y')} UTC"
             }]
         )
         text = res.content[0].text
@@ -180,27 +249,22 @@ def main():
         reports[key] = run_agent(key)
         time.sleep(3)
 
-    # Build cache JSON content
     payload = {
         "research_date": datetime.datetime.utcnow().isoformat(),
         "reports": reports
     }
     content = json.dumps(payload, ensure_ascii=False, indent=2)
 
-    # Save to Google Drive as cache file
     date_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     url = save_to_gdrive(content, f"agent_cache_{date_str}.json")
 
-    print(f"\n✅ Evening research complete")
-    print(f"   Agents done: {len(reports)}/5")
+    print(f"\n✅ Evening research complete — Agents done: {len(reports)}/6")
     if url:
         print(f"   Drive: {url}")
 
-    # Also save file ID for morning job via env (not possible in cron)
-    # Instead save locally — morning cron will re-fetch from Drive by date
     Path("cache_latest.json").write_text(content, encoding="utf-8")
     print("   Local cache saved ✓")
 
 if __name__ == "__main__":
     main()
-    sys.exit(0)   # must exit for Railway cron
+    sys.exit(0)
