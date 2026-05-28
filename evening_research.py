@@ -264,7 +264,7 @@ def run_agent(key):
     try:
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=1200,
+            max_tokens=2000,
             system=a["system"],
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=messages
@@ -299,7 +299,7 @@ def run_agent(key):
 
             res = client.messages.create(
                 model="claude-sonnet-4-5",
-                max_tokens=1200,
+                max_tokens=2000,
                 system=a["system"],
                 tools=[{"type": "web_search_20250305", "name": "web_search"}],
                 messages=messages
@@ -385,8 +385,8 @@ def call_ceo(agent_reports):
     try:
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=1500,
-            system="คุณคือ CEO ของทีมวิเคราะห์การลงทุนระดับสถาบัน สรุปรายงานเป็นภาษาไทย แยก S&P500 กับ Bitcoin ชัดเจน ห้ามปนกัน ระบุสินทรัพย์และ action ให้ชัดเจนทุกข้อ",
+            max_tokens=2048,
+            system="คุณคือ CEO สรุปรายงานการลงทุนเป็นภาษาไทย กระชับมาก ห้ามเกิน 800 คำ แยก S&P500 กับ Bitcoin ชัดเจน ระบุสินทรัพย์และ action ชัดเจนทุกข้อ",
             messages=[{"role": "user", "content": prompt}]
         )
         text = res.content[0].text
@@ -466,11 +466,38 @@ def md_to_html(text):
     text = text.replace("\n", "<br>")
     return text
 
+def build_html(date_str, ceo_html, gdrive_url):
+    drive_section = ""
+    if gdrive_url:
+        drive_section = (
+            f'<div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:8px;'
+            f'padding:16px;margin:16px 0;text-align:center">'
+            f'<div style="font-size:16px;font-weight:bold;color:#166534;margin-bottom:10px">'
+            f'รายงานฉบับเต็ม (Agent 1-6 + CEO)</div>'
+            f'<a href="{gdrive_url}" style="background:#16a34a;color:white;padding:12px 28px;'
+            f'border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;display:inline-block">'
+            f'เปิดรายงานใน Google Drive</a>'
+            f'<div style="font-size:12px;color:#15803d;margin-top:8px">'
+            f'กด link ด้านบนเพื่อดูรายงานฉบับสมบูรณ์ทุกส่วน</div></div>'
+        )
+    return (
+        f'<div style="font-family:Arial,sans-serif;max-width:660px;margin:0 auto;'
+        f'font-size:15px;color:#111;line-height:1.75">'
+        f'<div style="background:#1e3a5f;color:white;padding:16px 20px;border-radius:8px;margin-bottom:12px">'
+        f'<div style="font-size:20px;font-weight:bold">Investment Intelligence Hub</div>'
+        f'<div style="font-size:13px;opacity:0.85;margin-top:4px">'
+        f'{date_str} | S&P500 + Bitcoin</div></div>'
+        f'{drive_section}'
+        f'<div style="padding:8px 4px">{ceo_html}</div>'
+        f'<div style="font-size:11px;color:#9ca3af;margin-top:12px;'
+        f'border-top:1px solid #e5e7eb;padding-top:10px">'
+        f'\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e01\u0e32\u0e23\u0e28\u0e36\u0e01\u0e29\u0e32\u0e40\u0e17\u0e48\u0e32\u0e19\u0e31\u0e49\u0e19 | For educational purposes only.</div></div>'
+    )
+
 def send_email(subject, ceo_report, gdrive_url):
     if not EMAIL_RECIPIENT:
         print("[Email] Skipped - no EMAIL_RECIPIENT")
         return
-
     gmail = get_gmail_service()
     if not gmail:
         print("[Email] Skipped - Gmail auth failed")
@@ -479,20 +506,18 @@ def send_email(subject, ceo_report, gdrive_url):
     bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
     date_str = bkk.strftime("%d/%m/%Y")
     ceo_html = md_to_html(ceo_report)
+    html_body = build_html(date_str, ceo_html, gdrive_url)
 
-    drive_link = ""
-    if gdrive_url:
-        drive_link = f'<br><a href="{gdrive_url}" style="background:#0f9d58;color:white;padding:8px 18px;border-radius:6px;text-decoration:none;font-size:13px">Full Report on Drive</a>'
-
-    html_body = f"""<div style="font-family:'Sarabun',Arial,sans-serif;max-width:680px;margin:0 auto;font-size:16px;color:#111;line-height:1.8">
-<div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:8px;margin-bottom:16px">
-<div style="font-size:22px;font-weight:bold">Investment Intelligence Hub</div>
-<div style="font-size:15px;opacity:0.85;margin-top:6px">{date_str} | S&P500 + Bitcoin</div>
-</div>
-<div style="padding:16px;font-size:16px;line-height:1.9">{ceo_html}</div>
-{drive_link}
-<div style="font-size:13px;color:#9ca3af;margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px">
-เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน | For educational purposes only, not investment advice.</div></div>"""
+    # Gmail clips emails > 102KB — check size
+    size_kb = len(html_body.encode("utf-8")) / 1024
+    print(f"[Email] HTML size: {size_kb:.1f} KB")
+    if size_kb > 80:
+        print("[Email] Too large — using compact version with Drive link only")
+        compact_content = (
+            "<p style='font-size:15px'>รายงานมีขนาดใหญ่เกินไปสำหรับ Email</p>"
+            "<p style='font-size:15px'>กรุณาเปิดรายงานฉบับเต็มจาก Google Drive ด้านบน</p>"
+        )
+        html_body = build_html(date_str, compact_content, gdrive_url)
 
     msg = email.mime.multipart.MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -500,12 +525,10 @@ def send_email(subject, ceo_report, gdrive_url):
     msg["To"] = EMAIL_RECIPIENT
     msg.attach(email.mime.text.MIMEText(ceo_report, "plain", "utf-8"))
     msg.attach(email.mime.text.MIMEText(html_body, "html", "utf-8"))
-
     raw_msg = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-
     try:
         gmail.users().messages().send(userId="me", body={"raw": raw_msg}).execute()
-        print(f"[Email] Sent via Gmail API -> {EMAIL_RECIPIENT}")
+        print(f"[Email] Sent -> {EMAIL_RECIPIENT} ({size_kb:.1f} KB)")
     except Exception as e:
         print(f"[Email] Gmail ERROR: {e}")
 
@@ -521,7 +544,7 @@ def main():
     reports = {}
     for key in AGENTS:
         reports[key] = run_agent(key)
-        time.sleep(15)  # รอ 15 วินาทีระหว่าง Agent เพื่อไม่ให้ exceed rate limit
+        time.sleep(2)
 
     date_str = bkk.strftime("%Y-%m-%d")
     cache = json.dumps({"research_date": datetime.datetime.utcnow().isoformat(), "reports": reports}, ensure_ascii=False, indent=2)
