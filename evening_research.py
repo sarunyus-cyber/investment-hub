@@ -184,6 +184,7 @@ AGENT_META = {k: {"emoji": v["emoji"], "name": v["name"]} for k, v in AGENTS.ite
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/documents",
 ]
 
 def get_google_creds():
@@ -233,6 +234,82 @@ def save_to_gdrive(content, filename):
         return url
     except Exception as e:
         print(f"[Drive] Save error: {e}")
+        return ""
+
+# ─── GOOGLE DOCS ──────────────────────────────────────────────────────────────
+def save_to_gdocs(ceo_report, agent_reports, date_str):
+    """Create a Google Doc with the full briefing report."""
+    creds = get_google_creds()
+    if not creds:
+        return ""
+    try:
+        docs_service  = build("docs",  "v1", credentials=creds)
+        drive_service = get_gdrive_service()
+
+        # Create new Google Doc
+        doc_title = f"Investment Briefing {date_str}"
+        doc = docs_service.documents().create(body={"title": doc_title}).execute()
+        doc_id  = doc["documentId"]
+        doc_url = f"https://docs.google.com/document/d/{doc_id}/edit"
+
+        # Move to Investment Reports folder
+        if GDRIVE_FOLDER_ID and drive_service:
+            drive_service.files().update(
+                fileId=doc_id,
+                addParents=GDRIVE_FOLDER_ID,
+                removeParents="root",
+                fields="id,parents"
+            ).execute()
+
+        # Build document content
+        bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+        timestamp = bkk.strftime("%d %B %Y เวลา %H:%M น. (Bangkok)")
+
+        requests = []
+        idx = 1  # current insertion index
+
+        def insert_text(text, style="NORMAL_TEXT"):
+            nonlocal idx
+            requests.append({"insertText": {"location": {"index": idx}, "text": text}})
+            end = idx + len(text)
+            if style != "NORMAL_TEXT":
+                requests.append({"updateParagraphStyle": {
+                    "range": {"startIndex": idx, "endIndex": end},
+                    "paragraphStyle": {"namedStyleType": style},
+                    "fields": "namedStyleType"
+                }})
+            idx = end
+
+        # Title
+        insert_text(f"Investment Briefing\n", "TITLE")
+        insert_text(f"{timestamp}\n", "SUBTITLE")
+        insert_text("\n")
+
+        # CEO Summary section
+        insert_text("CEO Summary (Agent 7)\n", "HEADING_1")
+        insert_text(ceo_report + "\n\n")
+
+        # Divider text
+        insert_text("=" * 60 + "\n\n")
+
+        # Each agent report
+        for key, report in agent_reports.items():
+            m = AGENT_META.get(key, {"emoji": "-", "name": key})
+            insert_text(f"{m['emoji']} {m['name']}\n", "HEADING_2")
+            insert_text(report + "\n\n")
+
+        # Execute all insertions in one batch
+        if requests:
+            docs_service.documents().batchUpdate(
+                documentId=doc_id,
+                body={"requests": requests}
+            ).execute()
+
+        print(f"[Docs] Created: {doc_title} → {doc_url}")
+        return doc_url
+
+    except Exception as e:
+        print(f"[Docs] ERROR: {e}")
         return ""
 
 # ─── RUN AGENT WITH WEB SEARCH ───────────────────────────────────────────────
@@ -466,35 +543,8 @@ def md_to_html(text):
     text = text.replace("\n", "<br>")
     return text
 
-def build_html(date_str, ceo_html, gdrive_url):
-    drive_section = ""
-    if gdrive_url:
-        drive_section = (
-            f'<div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:8px;'
-            f'padding:16px;margin:16px 0;text-align:center">'
-            f'<div style="font-size:16px;font-weight:bold;color:#166534;margin-bottom:10px">'
-            f'รายงานฉบับเต็ม (Agent 1-6 + CEO)</div>'
-            f'<a href="{gdrive_url}" style="background:#16a34a;color:white;padding:12px 28px;'
-            f'border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;display:inline-block">'
-            f'เปิดรายงานใน Google Drive</a>'
-            f'<div style="font-size:12px;color:#15803d;margin-top:8px">'
-            f'กด link ด้านบนเพื่อดูรายงานฉบับสมบูรณ์ทุกส่วน</div></div>'
-        )
-    return (
-        f'<div style="font-family:Arial,sans-serif;max-width:660px;margin:0 auto;'
-        f'font-size:15px;color:#111;line-height:1.75">'
-        f'<div style="background:#1e3a5f;color:white;padding:16px 20px;border-radius:8px;margin-bottom:12px">'
-        f'<div style="font-size:20px;font-weight:bold">Investment Intelligence Hub</div>'
-        f'<div style="font-size:13px;opacity:0.85;margin-top:4px">'
-        f'{date_str} | S&P500 + Bitcoin</div></div>'
-        f'{drive_section}'
-        f'<div style="padding:8px 4px">{ceo_html}</div>'
-        f'<div style="font-size:11px;color:#9ca3af;margin-top:12px;'
-        f'border-top:1px solid #e5e7eb;padding-top:10px">'
-        f'\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e01\u0e32\u0e23\u0e28\u0e36\u0e01\u0e29\u0e32\u0e40\u0e17\u0e48\u0e32\u0e19\u0e31\u0e49\u0e19 | For educational purposes only.</div></div>'
-    )
-
-def send_email(subject, ceo_report, gdrive_url):
+def send_notification_email(subject, doc_url, date_str, ceo_summary):
+    """Send a short notification email with link to Google Doc."""
     if not EMAIL_RECIPIENT:
         print("[Email] Skipped - no EMAIL_RECIPIENT")
         return
@@ -503,32 +553,43 @@ def send_email(subject, ceo_report, gdrive_url):
         print("[Email] Skipped - Gmail auth failed")
         return
 
-    bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
-    date_str = bkk.strftime("%d/%m/%Y")
-    ceo_html = md_to_html(ceo_report)
-    html_body = build_html(date_str, ceo_html, gdrive_url)
+    # Short summary = first 500 chars of CEO report
+    short = ceo_summary[:500] + "..." if len(ceo_summary) > 500 else ceo_summary
 
-    # Gmail clips emails > 102KB — check size
-    size_kb = len(html_body.encode("utf-8")) / 1024
-    print(f"[Email] HTML size: {size_kb:.1f} KB")
-    if size_kb > 80:
-        print("[Email] Too large — using compact version with Drive link only")
-        compact_content = (
-            "<p style='font-size:15px'>รายงานมีขนาดใหญ่เกินไปสำหรับ Email</p>"
-            "<p style='font-size:15px'>กรุณาเปิดรายงานฉบับเต็มจาก Google Drive ด้านบน</p>"
-        )
-        html_body = build_html(date_str, compact_content, gdrive_url)
+    html_body = f"""<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;font-size:15px;color:#111;line-height:1.7">
+<div style="background:#1e3a5f;color:white;padding:16px 20px;border-radius:8px;margin-bottom:16px">
+  <div style="font-size:20px;font-weight:bold">Investment Intelligence Hub</div>
+  <div style="font-size:13px;opacity:0.85;margin-top:4px">{date_str} | S&P500 + Bitcoin</div>
+</div>
+
+<p style="font-size:16px;font-weight:bold;color:#1e3a5f">รายงานการลงทุนประจำสัปดาห์พร้อมแล้ว</p>
+
+<div style="background:#f8fafc;border-left:4px solid #1e3a5f;padding:12px 16px;margin:12px 0;border-radius:0 6px 6px 0;font-size:14px;color:#374151">
+{short.replace(chr(10), "<br>")}
+</div>
+
+<div style="text-align:center;margin:20px 0">
+  <a href="{doc_url}" style="background:#1e3a5f;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;display:inline-block">
+    เปิดรายงานฉบับเต็ม
+  </a>
+</div>
+
+<p style="font-size:13px;color:#6b7280">วิเคราะห์โดย AI 7 Agents: News, Broker, Technical, Macro, Portfolio, Elite Council, CEO</p>
+<div style="font-size:11px;color:#9ca3af;margin-top:12px;border-top:1px solid #e5e7eb;padding-top:10px">
+เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน</div>
+</div>"""
 
     msg = email.mime.multipart.MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = EMAIL_SENDER or "me"
-    msg["To"] = EMAIL_RECIPIENT
-    msg.attach(email.mime.text.MIMEText(ceo_report, "plain", "utf-8"))
+    msg["From"]    = EMAIL_SENDER or "me"
+    msg["To"]      = EMAIL_RECIPIENT
+    msg.attach(email.mime.text.MIMEText(short, "plain", "utf-8"))
     msg.attach(email.mime.text.MIMEText(html_body, "html", "utf-8"))
     raw_msg = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     try:
         gmail.users().messages().send(userId="me", body={"raw": raw_msg}).execute()
-        print(f"[Email] Sent -> {EMAIL_RECIPIENT} ({size_kb:.1f} KB)")
+        size_kb = len(html_body.encode()) / 1024
+        print(f"[Email] Notification sent -> {EMAIL_RECIPIENT} ({size_kb:.1f} KB)")
     except Exception as e:
         print(f"[Email] Gmail ERROR: {e}")
 
@@ -544,27 +605,31 @@ def main():
     reports = {}
     for key in AGENTS:
         reports[key] = run_agent(key)
-        time.sleep(2)
+        time.sleep(15)  # avoid rate limit
 
     date_str = bkk.strftime("%Y-%m-%d")
-    cache = json.dumps({"research_date": datetime.datetime.utcnow().isoformat(), "reports": reports}, ensure_ascii=False, indent=2)
-    save_to_gdrive(cache, f"agent_cache_{date_str}.json")
+    date_str_th = bkk.strftime("%d/%m/%Y")
 
     # Phase 2: CEO
     print("\nPhase 2: CEO Briefing...")
     ceo_report = call_ceo(reports)
 
-    full_doc = f"# Investment Briefing - {date_str}\n\n{ceo_report}\n\n{'='*50}\n# Agent Reports\n"
-    for key, report in reports.items():
-        m = AGENT_META.get(key, {"emoji": "-", "name": key})
-        full_doc += f"\n## {m['emoji']} {m['name']}\n{report}\n"
-    gdrive_url = save_to_gdrive(full_doc, f"Briefing_{date_str}.txt")
+    # Phase 3: Save as Google Docs
+    print("\nPhase 3: Saving to Google Docs...")
+    doc_url = save_to_gdocs(ceo_report, reports, date_str)
 
-    # Phase 3: Email
-    print("\nPhase 3: Email...")
-    send_email(f"Investment Briefing {bkk.strftime('%d/%m/%Y')} | S&P500 + Bitcoin", ceo_report, gdrive_url)
+    # Phase 4: Send short notification email
+    print("\nPhase 4: Sending notification email...")
+    send_notification_email(
+        subject=f"Investment Briefing {date_str_th} | S&P500 + Bitcoin พร้อมแล้ว",
+        doc_url=doc_url,
+        date_str=date_str_th,
+        ceo_summary=ceo_report
+    )
 
     print(f"\nAll done!")
+    if doc_url:
+        print(f"Google Doc: {doc_url}")
 
 if __name__ == "__main__":
     main()
