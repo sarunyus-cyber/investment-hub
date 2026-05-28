@@ -1,6 +1,7 @@
 """
-Morning Briefing Job — CEO สรุป + Email + Save Drive แล้ว exit
+Morning Briefing Job — CEO (Agent 7) สรุป + Email + Save Drive แล้ว exit
 Railway Cron: 0 0 * * *  (07:00 Bangkok = 00:00 UTC)
+Email: ภาษาไทย ความยาวไม่เกิน 1 หน้า A4
 """
 import anthropic
 import json
@@ -10,6 +11,8 @@ import sys
 import smtplib
 import re
 import time
+import base64
+import io
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -17,7 +20,6 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload, MediaIoBaseDownload
-import io
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
@@ -30,21 +32,21 @@ GDRIVE_TOKEN_JSON = os.environ.get("GDRIVE_TOKEN_JSON", "")
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 AGENT_META = {
-    "journalist":        {"emoji": "📰", "name": "Agent 1 — นักข่าว"},
-    "broker":            {"emoji": "📊", "name": "Agent 2 — Broker"},
-    "technical":         {"emoji": "📈", "name": "Agent 3 — Technical"},
-    "economist":         {"emoji": "🌐", "name": "Agent 4 — Economist"},
-    "financial_advisor": {"emoji": "💰", "name": "Agent 5 — Financial Advisor"},
+    "news":      {"emoji": "📰", "name": "Agent 1 — News Researcher"},
+    "broker":    {"emoji": "📊", "name": "Agent 2 — Broker"},
+    "technical": {"emoji": "📈", "name": "Agent 3 — Technical"},
+    "macro":     {"emoji": "🌐", "name": "Agent 4 — Macro"},
+    "portfolio": {"emoji": "💰", "name": "Agent 5 — Portfolio"},
+    "council":   {"emoji": "🧠", "name": "Agent 6 — Elite Council"},
 }
 
-# ─── GOOGLE DRIVE ────────────────────────────────────────────────────────────
+# ─── GOOGLE DRIVE ─────────────────────────────────────────────────────────────
 GDRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 def get_gdrive_service():
     if not GDRIVE_TOKEN_JSON:
         return None
     try:
-        import base64
         token_data = json.loads(base64.b64decode(GDRIVE_TOKEN_JSON).decode())
         creds = Credentials(
             token=token_data.get("token"),
@@ -62,7 +64,6 @@ def get_gdrive_service():
         return None
 
 def load_cache_from_drive(date_str: str) -> dict | None:
-    """Load yesterday's agent cache from Drive."""
     service = get_gdrive_service()
     if not service:
         return None
@@ -74,7 +75,6 @@ def load_cache_from_drive(date_str: str) -> dict | None:
         res = service.files().list(q=q, fields="files(id,name)").execute()
         files = res.get("files", [])
         if not files:
-            print(f"[Drive] Cache file not found: {fname}")
             return None
         fid = files[0]["id"]
         req = service.files().get_media(fileId=fid)
@@ -107,154 +107,137 @@ def save_to_gdrive(content: str, filename: str) -> str:
         print(f"[Drive] Save error: {e}")
         return ""
 
-# ─── CEO AGENT ───────────────────────────────────────────────────────────────
-CEO_SYSTEM = """คุณคือ CEO และ CIO ของกองทุนการลงทุนระดับสูง มีประสบการณ์กว่า 20 ปี
-คุณสังเคราะห์ข้อมูลจาก 5 ผู้เชี่ยวชาญและตัดสินใจลงทุนอย่างรอบด้าน
-คุณเชี่ยวชาญการเชื่อมโยงข่าว + ตลาด + Technical + Macro + Portfolio"""
+# ─── CEO AGENT 7 ──────────────────────────────────────────────────────────────
+CEO_SYSTEM = """คุณคือ CEO และ Final Decision Maker ของทีมวิเคราะห์การลงทุนระดับสถาบัน
+คุณได้รับรายงานจาก 6 ผู้เชี่ยวชาญ และต้องสังเคราะห์เป็น Morning Briefing ภาษาไทย
+ที่มีความยาวพอดี 1 หน้า A4 (ประมาณ 400-500 คำ)
+คุณต้องเป็นกลาง ใช้ความน่าจะเป็น ไม่รับประกันผลลัพธ์
+อธิบายเหตุผลให้ชัดเจนเสมอ"""
 
 def call_ceo(agent_reports: dict) -> str:
-    print("[👑] CEO synthesizing reports...")
+    print("[🎯] CEO (Agent 7) synthesizing all reports...")
     sections = ""
     for key, report in agent_reports.items():
-        m = AGENT_META[key]
-        sections += f"\n\n{'─'*50}\n{m['emoji']} {m['name']}\n{'─'*50}\n{report}"
+        m = AGENT_META.get(key, {"emoji": "•", "name": key})
+        sections += f"\n\n{'─'*40}\n{m['emoji']} {m['name']}\n{'─'*40}\n{report}"
 
-    today = datetime.datetime.utcnow()
-    bkk_date = (today + datetime.timedelta(hours=7)).strftime("%d %B %Y")
+    bkk = (datetime.datetime.utcnow() + datetime.timedelta(hours=7))
+    bkk_date = bkk.strftime("%d %B %Y")
 
-    prompt = f"""คุณได้รับรายงานจาก 5 ผู้เชี่ยวชาญ:{sections}
+    prompt = f"""คุณได้รับรายงานจาก 6 ผู้เชี่ยวชาญ:{sections}
 
 ---
-กรุณาสร้าง CEO Morning Briefing รูปแบบนี้:
+กรุณาสร้าง CEO Morning Briefing ภาษาไทย ความยาวไม่เกิน 1 หน้า A4
+ใช้รูปแบบนี้ (กระชับ ตรงประเด็น):
 
-## 🌅 Morning Briefing — {bkk_date}
+## 🎯 Morning Briefing — {bkk_date}
 
-### 📌 Executive Summary
-(3-4 ประโยค สรุปภาพรวมสถานการณ์การลงทุนวันนี้)
+### 📌 สรุปภาพรวม
+(2-3 ประโยค สถานการณ์ S&P500 และ Bitcoin วันนี้)
 
-### 🔑 Key Signals วันนี้
-🟢 **Bullish Factors:**
-- (3 ข้อ)
+### 🔑 สัญญาณสำคัญ
+🟢 Bullish: (2 ข้อสั้น)
+🔴 Bearish: (2 ข้อสั้น)
+🟡 จับตา: (1 ข้อ)
 
-🔴 **Bearish Factors:**
-- (3 ข้อ)
+### 📊 แนวโน้มตลาด
+| | S&P500 | Bitcoin |
+|---|---|---|
+| Short-term | | |
+| Mid-term | | |
+| Trend | | |
 
-🟡 **Wildcards / จับตา:**
-- (2 ข้อ)
+### 💼 แนะนำพอร์ต
+| | Conservative | Moderate | Aggressive |
+|---|---|---|---|
+| S&P500 | | | |
+| Bitcoin | | | |
+| Gold | | | |
+| Cash | | | |
 
-### 📊 Market Outlook
-| ตลาด | แนวโน้ม | ระดับความเสี่ยง |
-|------|---------|----------------|
-| US Markets | | |
-| Asian Markets | | |
-| SET Index | | |
-| Gold / Oil | | |
-| Bitcoin | | |
-
-### 💼 Investment Strategy วันนี้
-
-**Conservative (เน้นปลอดภัย):**
-- แนะนำ allocation และ action
-
-**Moderate (สมดุล):**
-- แนะนำ allocation และ action
-
-**Aggressive (รับความเสี่ยงสูง):**
-- แนะนำ allocation และ action
-
-### ✅ Action Items (5 ข้อ)
+### ✅ Action Plan (3 ข้อ)
 1.
 2.
 3.
-4.
-5.
 
-### ⚠️ Risk Warning
-(ความเสี่ยงหลัก 2-3 ข้อที่ต้องระวังวันนี้)
+### ⚠️ ความเสี่ยงหลัก
+(1-2 ข้อที่ต้องระวังที่สุด)
+
+### 🎯 Final Decision
+**BUY / HOLD / SELL** — (เหตุผล 1 ประโยค)
+Risk Score: X/10 | Confidence: X/10
 
 ---
-*รายงานนี้เป็นข้อมูลเพื่อการศึกษา ไม่ใช่คำแนะนำการลงทุน*"""
+*ข้อมูลเพื่อการศึกษา ไม่ใช่คำแนะนำการลงทุน*"""
 
     try:
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=3500,
+            max_tokens=2000,
             system=CEO_SYSTEM,
             messages=[{"role": "user", "content": prompt}]
         )
         text = res.content[0].text
-        print(f"[👑] CEO report done ✓ ({len(text)} chars)")
+        print(f"[🎯] CEO report done ✓ ({len(text)} chars)")
         return text
     except Exception as e:
-        print(f"[👑] CEO ERROR: {e}")
+        print(f"[🎯] CEO ERROR: {e}")
         return f"[CEO Error: {e}]"
 
 # ─── EMAIL ────────────────────────────────────────────────────────────────────
 def md_to_html(text: str) -> str:
-    """Convert simple markdown to HTML."""
-    text = re.sub(r"^### (.+)$", r"<h3 style='color:#1e3a5f;margin:16px 0 8px'>\1</h3>", text, flags=re.M)
-    text = re.sub(r"^## (.+)$",  r"<h2 style='color:#1e3a5f;margin:20px 0 10px'>\1</h2>", text, flags=re.M)
-    text = re.sub(r"^\| (.+) \|$", lambda m: f"<tr>{''.join(f'<td style=padding:6px 10px;border:1px solid #e5e7eb>{c.strip()}</td>' for c in m.group(1).split('|'))}</tr>", text, flags=re.M)
+    text = re.sub(r"^### (.+)$", r"<h3 style='color:#1e3a5f;margin:14px 0 6px;font-size:14px'>\1</h3>", text, flags=re.M)
+    text = re.sub(r"^## (.+)$",  r"<h2 style='color:#1e3a5f;margin:16px 0 8px;font-size:16px'>\1</h2>", text, flags=re.M)
+    text = re.sub(r"^\| (.+) \|$", lambda m: "<tr>" + "".join(
+        f"<td style='padding:5px 10px;border:1px solid #e5e7eb;font-size:12px'>{c.strip()}</td>"
+        for c in m.group(1).split("|")) + "</tr>", text, flags=re.M)
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
-    text = re.sub(r"^- (.+)$", r"<li>\1</li>", text, flags=re.M)
-    text = re.sub(r"(<li>.*</li>\n?)+", r"<ul style='margin:6px 0 6px 20px'>\g<0></ul>", text)
-    text = re.sub(r"\n\n", "<br><br>", text)
+    text = re.sub(r"^[-•] (.+)$", r"<li style='margin:3px 0'>\1</li>", text, flags=re.M)
+    text = re.sub(r"(<li.*</li>\n?)+", r"<ul style='margin:6px 0 6px 18px;padding:0'>\g<0></ul>", text)
+    text = re.sub(r"\n\n", "<br>", text)
     text = re.sub(r"\n", "<br>", text)
     return text
 
-def build_email(ceo_report: str, agent_reports: dict, gdrive_url: str) -> tuple[str, str]:
-    today = datetime.datetime.utcnow()
-    bkk = today + datetime.timedelta(hours=7)
-    date_str  = bkk.strftime("%d/%m/%Y")
-    time_str  = bkk.strftime("%H:%M")
-
+def build_email(ceo_report: str, gdrive_url: str) -> tuple[str, str]:
+    bkk   = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+    date_str = bkk.strftime("%d/%m/%Y")
+    time_str = bkk.strftime("%H:%M")
     ceo_html = md_to_html(ceo_report)
-
-    # Agent preview cards
-    cards = ""
-    for key, report in agent_reports.items():
-        m = AGENT_META[key]
-        preview = report[:350].replace("\n", "<br>") + "..."
-        cards += f"""
-        <div style="border-left:4px solid #3b82f6;background:#f0f9ff;padding:12px 16px;margin:8px 0;border-radius:0 8px 8px 0">
-          <strong style="font-size:14px">{m['emoji']} {m['name']}</strong><br>
-          <span style="font-size:13px;color:#374151;line-height:1.6">{preview}</span>
-        </div>"""
 
     drive_btn = ""
     if gdrive_url:
-        drive_btn = f"""<div style="margin:20px 0">
-          <a href="{gdrive_url}" style="background:#0f9d58;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold">
+        drive_btn = f"""<div style="margin:16px 0">
+          <a href="{gdrive_url}" style="background:#0f9d58;color:white;padding:8px 18px;
+          border-radius:6px;text-decoration:none;font-size:13px;font-weight:bold">
             📁 ดูรายงานฉบับเต็มใน Google Drive
           </a></div>"""
 
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
-  body{{font-family:Arial,'Sarabun',sans-serif;max-width:680px;margin:0 auto;padding:20px;color:#111;line-height:1.6}}
-  table{{border-collapse:collapse;width:100%;margin:10px 0}}
-  td{{padding:6px 10px;border:1px solid #e5e7eb;font-size:13px}}
-  tr:first-child td{{background:#dbeafe;font-weight:bold}}
+  body{{font-family:Arial,'Sarabun',sans-serif;max-width:640px;margin:0 auto;
+       padding:16px;color:#111;line-height:1.6;font-size:13px}}
+  table{{border-collapse:collapse;width:100%;margin:8px 0}}
+  td{{padding:5px 10px;border:1px solid #e5e7eb;font-size:12px}}
+  tr:first-child td{{background:#dbeafe;font-weight:bold;font-size:12px}}
 </style></head><body>
-  <div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:10px;margin-bottom:20px">
-    <h1 style="margin:0;font-size:22px">🏦 Investment Intelligence Hub</h1>
-    <p style="margin:6px 0 0;opacity:0.85">📅 Morning Briefing — {date_str} &nbsp;|&nbsp; 🕖 {time_str} (Bangkok)</p>
+  <div style="background:#1e3a5f;color:white;padding:16px 20px;border-radius:8px;margin-bottom:16px">
+    <div style="font-size:18px;font-weight:bold">🏦 Investment Intelligence Hub</div>
+    <div style="font-size:12px;opacity:0.85;margin-top:4px">
+      📅 {date_str} &nbsp;|&nbsp; 🕖 {time_str} Bangkok &nbsp;|&nbsp;
+      🎯 Focus: S&P500 + Bitcoin
+    </div>
   </div>
-  <div style="background:white;border:1px solid #e5e7eb;border-radius:10px;padding:20px;margin-bottom:20px">
-    <h2 style="color:#1e3a5f;margin-top:0">👑 CEO Summary</h2>
+  <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:16px">
     {ceo_html}
   </div>
-  <div style="margin-bottom:20px">
-    <h2 style="color:#1e3a5f">📋 Agent Reports (Preview)</h2>
-    {cards}
-  </div>
   {drive_btn}
-  <div style="font-size:11px;color:#9ca3af;margin-top:20px;border-top:1px solid #e5e7eb;padding-top:12px">
-    สร้างโดย Investment Intelligence Hub • Multi-Agent AI System<br>
-    ⚠️ รายงานนี้เป็นข้อมูลเพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน
+  <div style="font-size:11px;color:#9ca3af;margin-top:12px;border-top:1px solid #e5e7eb;padding-top:10px">
+    สร้างโดย Investment Intelligence Hub • 7-Agent AI System<br>
+    ⚠️ เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน
   </div>
 </body></html>"""
 
-    plain = f"Investment Intelligence Hub — Morning Briefing {date_str}\n\n{ceo_report}"
+    plain = f"Investment Intelligence Hub — {date_str}\n\n{ceo_report}"
     return html, plain
 
 def send_email(subject: str, html: str, plain: str):
@@ -279,7 +262,7 @@ def main():
     print(f"☀️  Morning Briefing — {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC")
     print(f"{'='*55}")
 
-    # 1. Load agent cache — try Drive first, fallback to local
+    # Load cache
     date_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     cache = load_cache_from_drive(date_str)
     if not cache:
@@ -288,8 +271,7 @@ def main():
             cache = json.loads(local.read_text(encoding="utf-8"))
             print("[Cache] Loaded from local file ✓")
         else:
-            print("[!] No cache found — running quick research...")
-            # Import and run evening research inline
+            print("[!] No cache — running quick research...")
             import evening_research as er
             er.main()
             cache = json.loads(Path("cache_latest.json").read_text(encoding="utf-8"))
@@ -297,25 +279,24 @@ def main():
     agent_reports = cache.get("reports", {})
     print(f"[Cache] Agents loaded: {list(agent_reports.keys())}")
 
-    # 2. CEO synthesizes
+    # CEO synthesizes
     ceo_report = call_ceo(agent_reports)
 
-    # 3. Build full briefing document
-    bkk_date   = (datetime.datetime.utcnow() + datetime.timedelta(hours=7)).strftime("%Y-%m-%d")
-    full_doc   = f"# Investment Morning Briefing — {bkk_date}\n\n"
-    full_doc  += ceo_report + "\n\n" + "=" * 60 + "\n# Agent Reports\n\n"
+    # Build full document for Drive
+    bkk_date = (datetime.datetime.utcnow() + datetime.timedelta(hours=7)).strftime("%Y-%m-%d")
+    full_doc  = f"# Investment Morning Briefing — {bkk_date}\n\n{ceo_report}\n\n"
+    full_doc += "=" * 50 + "\n# Agent Reports\n\n"
     for key, report in agent_reports.items():
-        m = AGENT_META[key]
+        m = AGENT_META.get(key, {"emoji": "•", "name": key})
         full_doc += f"\n## {m['emoji']} {m['name']}\n{report}\n"
 
-    # 4. Save full briefing to Drive
     gdrive_url = save_to_gdrive(full_doc, f"Briefing_{bkk_date}.txt")
 
-    # 5. Send email
-    html, plain = build_email(ceo_report, agent_reports, gdrive_url)
+    # Send email
     bkk_date_th = (datetime.datetime.utcnow() + datetime.timedelta(hours=7)).strftime("%d/%m/%Y")
+    html, plain = build_email(ceo_report, gdrive_url)
     send_email(
-        subject=f"📊 Investment Briefing {bkk_date_th} — AI Morning Report",
+        subject=f"📊 Investment Briefing {bkk_date_th} | S&P500 + Bitcoin",
         html=html,
         plain=plain,
     )
@@ -326,4 +307,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    sys.exit(0)   # must exit for Railway cron
+    sys.exit(0)
