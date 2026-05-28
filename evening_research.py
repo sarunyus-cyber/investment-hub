@@ -1,16 +1,19 @@
 """
-Evening Research Job — รัน Agents 1-6 ค้นข้อมูล แล้ว exit
-Railway Cron: 0 10 * * *  (17:00 Bangkok = 10:00 UTC)
-Focus: S&P500 + Bitcoin (Primary), Global Macro (Secondary)
+Investment Intelligence Hub — All-in-One
+รัน Agents 1-6 ค้นข้อมูล → CEO สรุป → ส่ง Email → บันทึก Drive
+Railway Cron: 0 14 * * *  (21:00 Bangkok = 14:00 UTC)
 """
 import anthropic
 import json
 import datetime
 import os
 import sys
+import re
 import time
-import io
 import base64
+import io
+import urllib.request
+import urllib.error
 from pathlib import Path
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -19,169 +22,63 @@ from googleapiclient.http import MediaInMemoryUpload
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+RESEND_API_KEY    = os.environ.get("RESEND_API_KEY", "")
+EMAIL_RECIPIENT   = os.environ.get("EMAIL_RECIPIENT", "")
 GDRIVE_FOLDER_ID  = os.environ.get("GDRIVE_FOLDER_ID", "")
 GDRIVE_TOKEN_JSON = os.environ.get("GDRIVE_TOKEN_JSON", "")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 GLOBAL_RULES = """
-GLOBAL RULES (ปฏิบัติตามเสมอ):
-- Focus หลัก: S&P500 และ Bitcoin
-- ใช้ข้อมูลจริงและเหตุการณ์ตลาดล่าสุด
-- แยกข้อเท็จจริงออกจากความเห็น
-- ระบุ Confidence Score (1-10) ทุกครั้ง
-- ระบุ Risk Score (1-10) ทุกครั้ง
-- แยก Short-term (1-4 สัปดาห์) / Mid-term (3-12 เดือน) / Long-term (1-5 ปี)
-- คำนึงถึง: Fed, ดอกเบี้ย, Inflation, GDP, Employment, Liquidity,
-  Geopolitics, Earnings, ETF flows, Bond yields, USD, Gold, Oil
+GLOBAL RULES:
+- Focus: S&P500 และ Bitcoin
+- แยกข้อเท็จจริงจากความเห็น
+- ระบุ Confidence Score (1-10)
+- ระบุ Risk Score (1-10)
+- แยก Short-term / Mid-term / Long-term
+- คำนึงถึง: Fed, ดอกเบี้ย, Inflation, GDP, Geopolitics, Earnings, ETF flows
 """
 
 AGENTS = {
     "news": {
-        "id": 1, "emoji": "📰",
-        "name": "Agent 1 — News Researcher",
-        "system": f"""คุณคือนักข่าวการเงินระดับโลกและนักวิจัยข่าวกรองตลาด
-{GLOBAL_RULES}
-หน้าที่: ค้นหาข่าวการเงินล่าสุดที่กระทบ S&P500 และ Bitcoin
-ห้ามวิเคราะห์เชิง Technical""",
-        "prompt": """รายงานข่าวสำคัญวันนี้ในรูปแบบ:
-
-## ข่าวสำคัญ
-(3-5 ข่าวที่กระทบ S&P500 และ Bitcoin มากที่สุด)
-
-## ผลกระทบต่อตลาด
-(อธิบายว่าแต่ละข่าวกระทบอย่างไร)
-
-## ปัจจัย Bullish 🟢
-## ปัจจัย Bearish 🔴
-## Market Sentiment
-## Confidence Score: X/10"""
+        "emoji": "📰", "name": "Agent 1 — News Researcher",
+        "system": f"คุณคือนักข่าวการเงินระดับโลก ค้นหาข่าวที่กระทบ S&P500 และ Bitcoin\n{GLOBAL_RULES}",
+        "prompt": "รายงานข่าวสำคัญ 3-5 ข่าวที่กระทบ S&P500 และ Bitcoin มากที่สุดวันนี้ พร้อม Bullish/Bearish factors และ Confidence Score"
     },
     "broker": {
-        "id": 2, "emoji": "📊",
-        "name": "Agent 2 — Professional Broker",
-        "system": f"""คุณคือนักกลยุทธ์ตลาดข้ามสินทรัพย์ระดับสถาบัน
-{GLOBAL_RULES}
-หน้าที่: วิเคราะห์พฤติกรรมตลาดในเชิง Fund Flow และ Sentiment
-ห้ามใช้ Technical Indicators""",
-        "prompt": """วิเคราะห์ภาพรวมตลาดในรูปแบบ:
-
-## Market Overview
-(S&P500, Nasdaq, Bitcoin, Ethereum, Gold, Oil, Bonds, USD)
-
-## Sector Rotation
-(Sector ไหนเงินไหลเข้า/ออก)
-
-## Institutional Flow
-(สถาบันกำลังทำอะไร)
-
-## Risk-On / Risk-Off
-## Bullish Signals 🟢
-## Bearish Signals 🔴
-## Confidence Score: X/10"""
+        "emoji": "📊", "name": "Agent 2 — Broker",
+        "system": f"คุณคือนักกลยุทธ์ตลาดระดับสถาบัน วิเคราะห์ Fund Flow และ Sentiment\n{GLOBAL_RULES}",
+        "prompt": "วิเคราะห์ S&P500, Nasdaq, Bitcoin, Ethereum, Gold, Oil, Bonds, USD — Sector Rotation, Institutional Flow, Risk-On/Off พร้อม Confidence Score"
     },
     "technical": {
-        "id": 3, "emoji": "📈",
-        "name": "Agent 3 — Technical Analyst",
-        "system": f"""คุณคือ Technical Analyst ระดับสถาบันผู้เชี่ยวชาญการวิเคราะห์กราฟ
-{GLOBAL_RULES}
-หน้าที่: วิเคราะห์ S&P500 และ Bitcoin ด้วย Technical Analysis เท่านั้น
-ห้ามวิเคราะห์ Macroeconomics""",
-        "prompt": """วิเคราะห์ Technical ของ S&P500 และ Bitcoin:
-
-## Market Structure
-## Key Support Levels
-## Key Resistance Levels
-## Momentum Analysis (RSI, MACD, EMA)
-## Trend Direction
-
-## Short-Term Signal (1-4 สัปดาห์)
-## Mid-Term Signal (3-12 เดือน)
-## Long-Term Signal (1-5 ปี)
-
-## สรุป: BUY 🟢 / SELL 🔴 / NEUTRAL 🟡
-## Confidence Score: X/10"""
+        "emoji": "📈", "name": "Agent 3 — Technical",
+        "system": f"คุณคือ Technical Analyst ระดับสถาบัน วิเคราะห์กราฟ S&P500 และ Bitcoin\n{GLOBAL_RULES}",
+        "prompt": "วิเคราะห์ Technical ของ S&P500 และ Bitcoin: Support/Resistance, RSI, MACD, EMA, Trend Direction, สรุป BUY/SELL/NEUTRAL พร้อม Confidence Score"
     },
     "macro": {
-        "id": 4, "emoji": "🌐",
-        "name": "Agent 4 — Global Macro Advisor",
-        "system": f"""คุณคือนักกลยุทธ์เศรษฐกิจมหภาคระดับโลก
-{GLOBAL_RULES}
-หน้าที่: ประเมินสภาพเศรษฐกิจโลก ความเสี่ยงเชิงระบบ และเปรียบเทียบกับประวัติศาสตร์""",
-        "prompt": """ประเมินสภาพเศรษฐกิจโลกในรูปแบบ:
-
-## Economic Cycle Status
-(Expansion / Slowdown / Recession)
-
-## Bubble Risk Analysis
-## Recession Probability (%)
-
-## Liquidity Conditions
-## Historical Comparison
-(เปรียบกับ Dot-com / 2008 / COVID / Inflation cycles)
-
-## Key Systemic Risks
-
-## Macro Outlook
-- Short-term (1-4 สัปดาห์):
-- Mid-term (3-12 เดือน):
-- Long-term (1-5 ปี):
-
-## Confidence Score: X/10"""
+        "emoji": "🌐", "name": "Agent 4 — Macro",
+        "system": f"คุณคือนักกลยุทธ์เศรษฐกิจมหภาค ประเมินสภาพเศรษฐกิจโลก\n{GLOBAL_RULES}",
+        "prompt": "ประเมิน Economic Cycle, Bubble Risk, Recession Probability, Liquidity, เปรียบกับ 2008/COVID พร้อม Confidence Score"
     },
     "portfolio": {
-        "id": 5, "emoji": "💰",
-        "name": "Agent 5 — Portfolio Manager",
-        "system": f"""คุณคือผู้จัดการพอร์ตและที่ปรึกษาบริหารความเสี่ยงมืออาชีพ
-{GLOBAL_RULES}
-หน้าที่: สร้างกลยุทธ์การจัดสรรสินทรัพย์ระหว่าง S&P500, Bitcoin, Gold, Bonds, Cash""",
-        "prompt": """แนะนำการจัดพอร์ตในรูปแบบ:
-
-## Portfolio Allocation (สัดส่วนแนะนำ %)
-| สินทรัพย์ | Conservative | Moderate | Aggressive |
-|-----------|-------------|----------|------------|
-| S&P500    |             |          |            |
-| Bitcoin   |             |          |            |
-| Gold      |             |          |            |
-| Bonds     |             |          |            |
-| Cash      |             |          |            |
-
-## Risk Level: X/10
-## Suggested Rebalancing
-## Best Risk/Reward Opportunities
-## Assets To Reduce 🔴
-## Assets To Increase 🟢
-## Buy / Hold / Sell
-## Confidence Score: X/10"""
+        "emoji": "💰", "name": "Agent 5 — Portfolio",
+        "system": f"คุณคือผู้จัดการพอร์ตมืออาชีพ จัดสรร S&P500/Bitcoin/Gold/Bonds/Cash\n{GLOBAL_RULES}",
+        "prompt": "แนะนำ Portfolio Allocation แยก Conservative/Moderate/Aggressive, Risk Level, Rebalancing, Buy/Hold/Sell พร้อม Confidence Score"
     },
     "council": {
-        "id": 6, "emoji": "🧠",
-        "name": "Agent 6 — Elite Investor Council",
-        "system": f"""คุณจำลองแนวคิดของนักลงทุนและผู้นำธุรกิจระดับโลก ได้แก่:
-Warren Buffett, Elon Musk, Jeff Bezos, Jensen Huang, Ken Griffin, Stephen Schwarzman
-{GLOBAL_RULES}
-หน้าที่: ทบทวนรายงานของทุก Agent วิเคราะห์เชิงกลยุทธ์ และท้าทายสมมติฐานที่อ่อนแอ
-ห้ามเห็นด้วยกับ Agent อื่นอย่างไม่มีเหตุผล""",
-        "prompt": """วิเคราะห์เชิงกลยุทธ์จากมุมมองของนักลงทุนระดับโลก:
-
-## Strategic Insights
-## Major Opportunities
-## Major Risks
-## Contrarian Perspectives
-(มุมมองที่ขัดแย้งกับ consensus)
-
-## What Smart Money May Be Doing
-## Key Conclusions
-## Confidence Score: X/10"""
+        "emoji": "🧠", "name": "Agent 6 — Elite Council",
+        "system": f"คุณจำลองแนวคิด Buffett, Musk, Bezos, Jensen Huang วิเคราะห์เชิงกลยุทธ์\n{GLOBAL_RULES}\nห้ามเห็นด้วยกับ Agent อื่นอย่างไม่มีเหตุผล",
+        "prompt": "วิเคราะห์ Strategic Insights, Opportunities, Risks, Contrarian Perspectives, What Smart Money May Be Doing พร้อม Confidence Score"
     },
 }
+
+AGENT_META = {k: {"emoji": v["emoji"], "name": v["name"]} for k, v in AGENTS.items()}
 
 # ─── GOOGLE DRIVE ─────────────────────────────────────────────────────────────
 GDRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 def get_gdrive_service():
     if not GDRIVE_TOKEN_JSON:
-        print("[Drive] GDRIVE_TOKEN_JSON not set — skipping")
         return None
     try:
         token_data = json.loads(base64.b64decode(GDRIVE_TOKEN_JSON).decode())
@@ -224,12 +121,9 @@ def run_agent(key: str) -> str:
     try:
         res = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=2000,
+            max_tokens=1500,
             system=a["system"],
-            messages=[{
-                "role": "user",
-                "content": a["prompt"] + f"\n\nวันที่วิเคราะห์: {datetime.datetime.utcnow().strftime('%d/%m/%Y')} UTC"
-            }]
+            messages=[{"role": "user", "content": a["prompt"] + f"\nวันที่: {datetime.datetime.utcnow().strftime('%d/%m/%Y')} UTC"}]
         )
         text = res.content[0].text
         print(f"[{a['emoji']}] Done ✓ ({len(text)} chars)")
@@ -238,32 +132,124 @@ def run_agent(key: str) -> str:
         print(f"[{a['emoji']}] ERROR: {e}")
         return f"[Error: {e}]"
 
+# ─── CEO ──────────────────────────────────────────────────────────────────────
+def call_ceo(agent_reports: dict) -> str:
+    print("[🎯] CEO (Agent 7) synthesizing...")
+    sections = ""
+    for key, report in agent_reports.items():
+        m = AGENT_META.get(key, {"emoji": "•", "name": key})
+        short = report[:400] if len(report) > 400 else report
+        sections += f"\n{m['emoji']} {m['name']}: {short}\n"
+
+    bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+    bkk_date = bkk.strftime("%d %B %Y")
+
+    prompt = f"""สรุป Morning Briefing ภาษาไทย ไม่เกิน 1 หน้า A4 จากรายงาน:{sections}
+
+## 🎯 Morning Briefing — {bkk_date}
+### 📌 สรุปภาพรวม (2 ประโยค)
+### 🔑 Bullish 🟢 (2 ข้อ) / Bearish 🔴 (2 ข้อ) / จับตา 🟡 (1 ข้อ)
+### 💼 แนะนำพอร์ต (ตาราง Conservative/Moderate/Aggressive)
+### ✅ Action Plan (3 ข้อ)
+### 🎯 Final Decision: BUY/HOLD/SELL + Risk Score + Confidence
+*ข้อมูลเพื่อการศึกษา ไม่ใช่คำแนะนำการลงทุน*"""
+
+    try:
+        res = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1024,
+            system="คุณคือ CEO สรุปรายงานการลงทุนเป็นภาษาไทย กระชับ ไม่เกิน 1 หน้า A4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = res.content[0].text
+        print(f"[🎯] CEO done ✓ ({len(text)} chars)")
+        return text
+    except Exception as e:
+        print(f"[🎯] CEO ERROR: {e}")
+        return f"[CEO Error: {e}]"
+
+# ─── EMAIL ────────────────────────────────────────────────────────────────────
+def md_to_html(text: str) -> str:
+    text = re.sub(r"^### (.+)$", r"<h3 style='color:#1e3a5f;margin:14px 0 6px;font-size:14px'>\1</h3>", text, flags=re.M)
+    text = re.sub(r"^## (.+)$", r"<h2 style='color:#1e3a5f;margin:16px 0 8px;font-size:16px'>\1</h2>", text, flags=re.M)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    text = text.replace("\n", "<br>")
+    return text
+
+def send_email(subject: str, ceo_report: str, gdrive_url: str):
+    if not RESEND_API_KEY or not EMAIL_RECIPIENT:
+        print("[Email] Skipped — no RESEND_API_KEY or EMAIL_RECIPIENT")
+        return
+    bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+    date_str = bkk.strftime("%d/%m/%Y")
+    ceo_html = md_to_html(ceo_report)
+    drive_btn = f'<br><a href="{gdrive_url}" style="background:#0f9d58;color:white;padding:8px 18px;border-radius:6px;text-decoration:none;font-size:13px">📁 รายงานฉบับเต็ม</a>' if gdrive_url else ""
+
+    html = f"""<div style="font-family:Arial;max-width:640px;margin:0 auto;font-size:13px;color:#111;line-height:1.6">
+<div style="background:#1e3a5f;color:white;padding:16px 20px;border-radius:8px">
+<div style="font-size:18px;font-weight:bold">🏦 Investment Intelligence Hub</div>
+<div style="font-size:12px;opacity:0.85;margin-top:4px">📅 {date_str} | 🎯 S&P500 + Bitcoin</div>
+</div>
+<div style="padding:16px">{ceo_html}</div>
+{drive_btn}
+<div style="font-size:11px;color:#9ca3af;margin-top:12px;border-top:1px solid #e5e7eb;padding-top:10px">
+⚠️ เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน</div></div>"""
+
+    try:
+        payload = json.dumps({
+            "from": "Investment Hub <onboarding@resend.dev>",
+            "to": [EMAIL_RECIPIENT],
+            "subject": subject,
+            "html": html,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read().decode())
+            print(f"[Email] Sent ✓ id={result.get('id', '?')}")
+    except Exception as e:
+        print(f"[Email] ERROR: {e}")
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
+    bkk = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
     print(f"\n{'='*55}")
-    print(f"🌙 Evening Research — {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC")
+    print(f"🏦 Investment Hub — {bkk.strftime('%Y-%m-%d %H:%M')} Bangkok")
     print(f"{'='*55}")
 
+    # Step 1: Run all agents
+    print("\n📡 Phase 1: Agent Research...")
     reports = {}
     for key in AGENTS:
         reports[key] = run_agent(key)
-        time.sleep(3)
+        time.sleep(2)
 
-    payload = {
-        "research_date": datetime.datetime.utcnow().isoformat(),
-        "reports": reports
-    }
-    content = json.dumps(payload, ensure_ascii=False, indent=2)
+    # Step 2: Save agent cache to Drive
+    date_str = bkk.strftime("%Y-%m-%d")
+    cache_payload = json.dumps({"research_date": datetime.datetime.utcnow().isoformat(), "reports": reports}, ensure_ascii=False, indent=2)
+    save_to_gdrive(cache_payload, f"agent_cache_{date_str}.json")
 
-    date_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    url = save_to_gdrive(content, f"agent_cache_{date_str}.json")
+    # Step 3: CEO synthesizes
+    print("\n👑 Phase 2: CEO Briefing...")
+    ceo_report = call_ceo(reports)
 
-    print(f"\n✅ Evening research complete — Agents done: {len(reports)}/6")
-    if url:
-        print(f"   Drive: {url}")
+    # Step 4: Save briefing to Drive
+    full_doc = f"# Investment Briefing — {date_str}\n\n{ceo_report}\n\n{'='*50}\n# Agent Reports\n"
+    for key, report in reports.items():
+        m = AGENT_META.get(key, {"emoji": "•", "name": key})
+        full_doc += f"\n## {m['emoji']} {m['name']}\n{report}\n"
+    gdrive_url = save_to_gdrive(full_doc, f"Briefing_{date_str}.txt")
 
-    Path("cache_latest.json").write_text(content, encoding="utf-8")
-    print("   Local cache saved ✓")
+    # Step 5: Send email
+    print("\n📧 Phase 3: Email...")
+    bkk_date_th = bkk.strftime("%d/%m/%Y")
+    send_email(f"📊 Investment Briefing {bkk_date_th} | S&P500 + Bitcoin", ceo_report, gdrive_url)
+
+    print(f"\n✅ All done!")
 
 if __name__ == "__main__":
     main()
