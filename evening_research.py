@@ -222,9 +222,71 @@ def call_ceo(agent_reports):
 
 # ─── EMAIL via Gmail API ──────────────────────────────────────────────────────
 def md_to_html(text):
-    text = re.sub(r"^### (.+)$", r"<h3 style='color:#1e3a5f;margin:14px 0 6px;font-size:14px'>\1</h3>", text, flags=re.M)
-    text = re.sub(r"^## (.+)$", r"<h2 style='color:#1e3a5f;margin:16px 0 8px;font-size:16px'>\1</h2>", text, flags=re.M)
+    # Remove non-Thai/non-ASCII garbled characters
+    import unicodedata
+    cleaned = []
+    for ch in text:
+        name = unicodedata.name(ch, "")
+        cat = unicodedata.category(ch)
+        # Keep: ASCII, Thai, common punctuation, spaces, newlines
+        if (ord(ch) < 128 or
+            0x0E00 <= ord(ch) <= 0x0E7F or  # Thai
+            cat in ("Po","Ps","Pe","Pi","Pf","Pd","Pc") or
+            ch in ("\n","\t","\r"," ")):
+            cleaned.append(ch)
+        elif cat.startswith("L") or cat.startswith("N"):
+            # Keep letters and numbers from any script except Cyrillic
+            if not (0x0400 <= ord(ch) <= 0x04FF):
+                cleaned.append(ch)
+    text = "".join(cleaned)
+
+    # Convert markdown table rows
+    lines = text.split("\n")
+    result = []
+    in_table = False
+    table_rows = []
+    for line in lines:
+        if line.strip().startswith("|") and "|" in line[1:]:
+            if not in_table:
+                in_table = True
+                table_rows = []
+            if not all(c in "|-: " for c in line.replace("|","")):
+                cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                table_rows.append(cells)
+        else:
+            if in_table:
+                html_table = '<table style="border-collapse:collapse;width:100%;margin:10px 0">'
+                for i, row in enumerate(table_rows):
+                    html_table += "<tr>"
+                    tag = "th" if i == 0 else "td"
+                    style = "background:#1e3a5f;color:white;padding:8px 10px;font-size:15px;font-weight:bold" if i == 0 else "padding:8px 10px;border:1px solid #e5e7eb;font-size:15px"
+                    for cell in row:
+                        html_table += f'<{tag} style="{style}">{cell}</{tag}>'
+                    html_table += "</tr>"
+                html_table += "</table>"
+                result.append(html_table)
+                in_table = False
+                table_rows = []
+            result.append(line)
+    if in_table and table_rows:
+        html_table = '<table style="border-collapse:collapse;width:100%;margin:10px 0">'
+        for i, row in enumerate(table_rows):
+            html_table += "<tr>"
+            tag = "th" if i == 0 else "td"
+            style = "background:#1e3a5f;color:white;padding:8px 10px;font-size:15px;font-weight:bold" if i == 0 else "padding:8px 10px;border:1px solid #e5e7eb;font-size:15px"
+            for cell in row:
+                html_table += f'<{tag} style="{style}">{cell}</{tag}>'
+            html_table += "</tr>"
+        html_table += "</table>"
+        result.append(html_table)
+    text = "\n".join(result)
+
+    text = re.sub(r"^### (.+)$", r"<h3 style='color:#1e3a5f;margin:16px 0 8px;font-size:18px'>\1</h3>", text, flags=re.M)
+    text = re.sub(r"^## (.+)$",  r"<h2 style='color:#1e3a5f;margin:18px 0 10px;font-size:22px'>\1</h2>", text, flags=re.M)
+    text = re.sub(r"^# (.+)$",   r"<h1 style='color:#1e3a5f;margin:20px 0 12px;font-size:26px'>\1</h1>", text, flags=re.M)
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    text = re.sub(r"^---$", r"<hr style='border:none;border-top:1px solid #e5e7eb;margin:16px 0'>", text, flags=re.M)
+    text = re.sub(r"^\*(.+)\*$", r"<em style='color:#6b7280;font-size:13px'>\1</em>", text, flags=re.M)
     text = text.replace("\n", "<br>")
     return text
 
@@ -246,15 +308,15 @@ def send_email(subject, ceo_report, gdrive_url):
     if gdrive_url:
         drive_link = f'<br><a href="{gdrive_url}" style="background:#0f9d58;color:white;padding:8px 18px;border-radius:6px;text-decoration:none;font-size:13px">Full Report on Drive</a>'
 
-    html_body = f"""<div style="font-family:Arial;max-width:640px;margin:0 auto;font-size:13px;color:#111;line-height:1.6">
-<div style="background:#1e3a5f;color:white;padding:16px 20px;border-radius:8px">
-<div style="font-size:18px;font-weight:bold">Investment Intelligence Hub</div>
-<div style="font-size:12px;opacity:0.85;margin-top:4px">{date_str} | S&P500 + Bitcoin</div>
+    html_body = f"""<div style="font-family:'Sarabun',Arial,sans-serif;max-width:680px;margin:0 auto;font-size:16px;color:#111;line-height:1.8">
+<div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:8px;margin-bottom:16px">
+<div style="font-size:22px;font-weight:bold">Investment Intelligence Hub</div>
+<div style="font-size:15px;opacity:0.85;margin-top:6px">{date_str} | S&P500 + Bitcoin</div>
 </div>
-<div style="padding:16px">{ceo_html}</div>
+<div style="padding:16px;font-size:16px;line-height:1.9">{ceo_html}</div>
 {drive_link}
-<div style="font-size:11px;color:#9ca3af;margin-top:12px;border-top:1px solid #e5e7eb;padding-top:10px">
-For educational purposes only, not investment advice.</div></div>"""
+<div style="font-size:13px;color:#9ca3af;margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px">
+เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน | For educational purposes only, not investment advice.</div></div>"""
 
     msg = email.mime.multipart.MIMEMultipart("alternative")
     msg["Subject"] = subject
