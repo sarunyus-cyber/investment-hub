@@ -8,13 +8,12 @@ import json
 import datetime
 import os
 import sys
-import smtplib
 import re
 import time
 import base64
 import io
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import urllib.request
+import urllib.error
 from pathlib import Path
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -23,8 +22,7 @@ from googleapiclient.http import MediaInMemoryUpload, MediaIoBaseDownload
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-EMAIL_SENDER      = os.environ["EMAIL_SENDER"]
-EMAIL_PASSWORD    = os.environ["EMAIL_PASSWORD"]
+RESEND_API_KEY    = os.environ["RESEND_API_KEY"]
 EMAIL_RECIPIENT   = os.environ["EMAIL_RECIPIENT"]
 GDRIVE_FOLDER_ID  = os.environ.get("GDRIVE_FOLDER_ID", "")
 GDRIVE_TOKEN_JSON = os.environ.get("GDRIVE_TOKEN_JSON", "")
@@ -242,16 +240,29 @@ def build_email(ceo_report: str, gdrive_url: str) -> tuple[str, str]:
 
 def send_email(subject: str, html: str, plain: str):
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = EMAIL_SENDER
-        msg["To"]      = EMAIL_RECIPIENT
-        msg.attach(MIMEText(plain, "plain", "utf-8"))
-        msg.attach(MIMEText(html,  "html",  "utf-8"))
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as srv:
-            srv.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            srv.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, msg.as_string())
-        print(f"[Email] Sent to {EMAIL_RECIPIENT} ✓")
+        payload = json.dumps({
+            "from": "Investment Hub <onboarding@resend.dev>",
+            "to": [EMAIL_RECIPIENT],
+            "subject": subject,
+            "html": html,
+            "text": plain,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read().decode())
+            print(f"[Email] Sent via Resend ✓ id={result.get('id', '?')}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"[Email] Resend ERROR {e.code}: {body}")
+        raise
     except Exception as e:
         print(f"[Email] ERROR: {e}")
         raise
