@@ -41,32 +41,140 @@ AGENTS = {
     "news": {
         "emoji": "\U0001f4f0", "name": "Agent 1 \u2014 News Researcher",
         "system": "You are a world-class financial journalist focused on S&P500 and Bitcoin.\n" + GLOBAL_RULES,
-        "prompt": "Report top 3-5 news impacting S&P500 and Bitcoin today with Bullish/Bearish factors and Confidence Score"
+        "searches": [
+            "S&P500 stock market news today",
+            "Bitcoin crypto news today",
+            "Federal Reserve interest rate news today",
+            "US economy inflation employment news today",
+            "geopolitical risk market impact today",
+        ],
+        "prompt": """Search the web first using the search queries provided, then report:
+## ข่าวสำคัญวันนี้ที่กระทบ S&P500 และ Bitcoin
+- รายงาน 3-5 ข่าวใหญ่ที่สุดของวันนี้ พร้อมวันที่และแหล่งข่าว
+- อธิบายผลกระทบต่อ S&P500 และ Bitcoin แยกกัน
+- ปัจจัยบวก (Bullish) และปัจจัยลบ (Bearish)
+- Market Sentiment วันนี้: Bullish/Bearish/Mixed
+- Confidence Score: X/10"""
     },
     "broker": {
         "emoji": "\U0001f4ca", "name": "Agent 2 \u2014 Broker",
         "system": "You are an institutional cross-market strategist analyzing Fund Flow and Sentiment.\n" + GLOBAL_RULES,
-        "prompt": "Analyze S&P500, Nasdaq, Bitcoin, Ethereum, Gold, Oil, Bonds, USD \u2014 Sector Rotation, Institutional Flow, Risk-On/Off with Confidence Score"
+        "searches": [
+            "S&P500 SPX price today closing",
+            "Bitcoin BTC price today USD",
+            "Gold price today XAU",
+            "US Treasury bond yield today",
+            "US Dollar DXY index today",
+            "Nasdaq 100 QQQ price today",
+        ],
+        "prompt": """Search the web for today\'s actual prices first, then analyze:
+## ราคาตลาดวันนี้ (ใช้ราคาจริงที่ค้นมาได้)
+| สินทรัพย์ | ราคา | เปลี่ยนแปลง % |
+|-----------|------|--------------|
+| S&P500    | (ราคาจริง) | |
+| Bitcoin   | (ราคาจริง) | |
+| Gold      | (ราคาจริง) | |
+| Bond 10Y  | (yield จริง) | |
+| USD (DXY) | (ค่าจริง) | |
+
+## Sector Rotation วันนี้
+## Institutional Flow: Risk-On หรือ Risk-Off?
+## Bullish/Bearish Signals
+- Confidence Score: X/10"""
     },
     "technical": {
         "emoji": "\U0001f4c8", "name": "Agent 3 \u2014 Technical",
         "system": "You are an elite technical analyst for S&P500 and Bitcoin.\n" + GLOBAL_RULES,
-        "prompt": "Technical analysis of S&P500 and Bitcoin: Support/Resistance, RSI, MACD, EMA, Trend, BUY/SELL/NEUTRAL with Confidence Score"
+        "searches": [
+            "S&P500 SPX technical analysis support resistance today",
+            "S&P500 SPX RSI MACD signal today",
+            "Bitcoin BTC technical analysis support resistance today",
+            "Bitcoin BTC RSI MACD signal today",
+        ],
+        "prompt": """Search for today\'s technical data first, then analyze using ACTUAL current prices:
+## S&P500 Technical Analysis
+- ราคาปัจจุบัน: (ราคาจริงวันนี้)
+- แนวรับ: / แนวต้าน: (ระดับจริง)
+- RSI: / MACD: / EMA:
+- Trend: / Signal: BUY/HOLD/SELL
+
+## Bitcoin Technical Analysis  
+- ราคาปัจจุบัน: (ราคาจริงวันนี้)
+- แนวรับ: / แนวต้าน: (ระดับจริง)
+- RSI: / MACD: / EMA:
+- Trend: / Signal: BUY/HOLD/SELL
+
+- Confidence Score: X/10"""
     },
     "macro": {
         "emoji": "\U0001f310", "name": "Agent 4 \u2014 Macro",
         "system": "You are a world-class macroeconomic strategist.\n" + GLOBAL_RULES,
-        "prompt": "Evaluate Economic Cycle, Bubble Risk, Recession Probability, Liquidity, compare to 2008/COVID with Confidence Score"
+        "searches": [
+            "Federal Reserve Fed meeting decision interest rate 2025",
+            "US inflation CPI data latest 2025",
+            "US GDP growth rate latest 2025",
+            "US unemployment jobs report latest 2025",
+            "global recession risk economic outlook 2025",
+        ],
+        "prompt": """Search for latest economic data first, then evaluate:
+## สถานการณ์เศรษฐกิจโลกล่าสุด
+- Fed Policy ล่าสุด: อัตราดอกเบี้ยปัจจุบัน + แนวโน้ม
+- Inflation (CPI) ล่าสุด: X%
+- GDP Growth ล่าสุด: X%
+- Unemployment ล่าสุด: X%
+## Economic Cycle: Expansion/Slowdown/Recession
+## Recession Probability: X%
+## ผลกระทบต่อ S&P500 และ Bitcoin
+- Confidence Score: X/10"""
     },
     "portfolio": {
         "emoji": "\U0001f4b0", "name": "Agent 5 \u2014 Portfolio",
         "system": "You are a professional portfolio manager for S&P500/Bitcoin/Gold/Bonds/Cash.\n" + GLOBAL_RULES,
-        "prompt": "Portfolio Allocation for Conservative/Moderate/Aggressive, Risk Level, Buy/Hold/Sell with Confidence Score"
+        "searches": [
+            "S&P500 ETF SPY VOO fund flow today",
+            "Bitcoin ETF BTC fund flow inflow outflow today",
+            "Gold ETF GLD fund flow today",
+            "market volatility VIX index today",
+        ],
+        "prompt": """Search for fund flow and volatility data first, then recommend:
+## สถานะตลาดวันนี้
+- VIX (Fear Index): (ค่าจริง) — ตลาด Fear/Greed?
+- Bitcoin ETF Flow: เงินไหลเข้า/ออก
+- S&P500 ETF Flow: เงินไหลเข้า/ออก
+
+## แนะนำพอร์ต (อิงจากข้อมูลจริงวันนี้)
+| สินทรัพย์ | Conservative | Moderate | Aggressive |
+|-----------|-------------|----------|------------|
+| S&P500    | X%          | X%       | X%         |
+| Bitcoin   | X%          | X%       | X%         |
+| Gold      | X%          | X%       | X%         |
+| Bond      | X%          | X%       | X%         |
+| Cash      | X%          | X%       | X%         |
+
+## Risk Level: X/10
+## Action: Buy/Hold/Sell อะไร และเท่าไหร่
+- Confidence Score: X/10"""
     },
     "council": {
         "emoji": "\U0001f9e0", "name": "Agent 6 \u2014 Elite Council",
         "system": "You simulate Buffett, Musk, Bezos, Jensen Huang. Challenge weak assumptions.\n" + GLOBAL_RULES,
-        "prompt": "Strategic Insights, Opportunities, Risks, Contrarian Perspectives, What Smart Money May Be Doing with Confidence Score"
+        "searches": [
+            "Warren Buffett Berkshire investment portfolio 2025",
+            "institutional investor hedge fund positioning S&P500 Bitcoin 2025",
+            "smart money flow stock market today",
+            "contrarian investment view S&P500 Bitcoin today",
+        ],
+        "prompt": """Search for what smart money and elite investors are doing now, then analyze:
+## มุมมองนักลงทุนระดับโลก
+- Buffett/Berkshire: กำลังทำอะไรอยู่?
+- Hedge Funds: Positioning อย่างไร?
+- Smart Money: เงินไหลไปทางไหน?
+
+## Contrarian View (มุมมองที่ขัดแย้งกับ consensus)
+## Hidden Risks ที่คนส่วนใหญ่มองข้าม
+## Asymmetric Opportunities วันนี้
+## Key Conclusion สำหรับ CEO
+- Confidence Score: X/10"""
     },
 }
 
@@ -132,59 +240,63 @@ def run_agent(key):
     a = AGENTS[key]
     print(f"[{a['emoji']}] Running {a['name']} (with web search)...")
     today = datetime.datetime.utcnow().strftime("%d/%m/%Y")
+
+    # Build search instruction from agent-specific queries
+    searches = a.get("searches", [])
+    search_instruction = ""
+    if searches:
+        search_list = "\n".join(f"  - {q}" for q in searches)
+        search_instruction = (
+            f"STEP 1: Use web_search for EACH of these queries (search all of them):\n"
+            f"{search_list}\n\n"
+            f"STEP 2: Analyze using the ACTUAL real-time data you found.\n"
+            f"Always cite actual prices/data from search results.\n\n"
+        )
+
+    user_message = (
+        f"Today is {today} Bangkok time.\n\n"
+        f"{search_instruction}"
+        f"{a['prompt']}"
+    )
+
+    messages = [{"role": "user", "content": user_message}]
+
     try:
-        # Enable web_search tool for real-time data
         res = client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=2000,
             system=a["system"],
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Today is {today} Bangkok time.\n"
-                    f"IMPORTANT: Use web_search to find CURRENT real-time data before analyzing.\n"
-                    f"Search for today\'s actual prices, news, and market data first.\n\n"
-                    f"{a['prompt']}"
-                )
-            }]
+            messages=messages
         )
 
-        # Extract final text from response (may include tool_use blocks)
         final_text = ""
-        for block in res.content:
-            if hasattr(block, "type"):
-                if block.type == "text":
-                    final_text += block.text
-        
-        # If agent used tools, run agentic loop until stop_reason == "end_turn"
-        messages = [{"role": "user", "content": (
-            f"Today is {today} Bangkok time.\n"
-            f"IMPORTANT: Use web_search to find CURRENT real-time data before analyzing.\n"
-            f"Search for today\'s actual prices, news, and market data first.\n\n"
-            f"{a['prompt']}"
-        )}]
-        
         loop_count = 0
-        while res.stop_reason == "tool_use" and loop_count < 5:
+
+        while True:
+            # Extract text from current response
+            for block in res.content:
+                if hasattr(block, "type") and block.type == "text":
+                    final_text += block.text
+
+            if res.stop_reason != "tool_use" or loop_count >= 8:
+                break
+
             loop_count += 1
-            # Build tool results
+            messages.append({"role": "assistant", "content": res.content})
+
+            # Pass tool results back
             tool_results = []
             for block in res.content:
                 if hasattr(block, "type") and block.type == "tool_use":
-                    # Find tool_result in content
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": "Search completed"
+                        "content": "Search completed — use results to analyze."
                     })
-            
-            # Add assistant response and tool results to messages
-            messages.append({"role": "assistant", "content": res.content})
             if tool_results:
                 messages.append({"role": "user", "content": tool_results})
-            
-            # Continue the conversation
+
             res = client.messages.create(
                 model="claude-sonnet-4-5",
                 max_tokens=2000,
@@ -192,26 +304,13 @@ def run_agent(key):
                 tools=[{"type": "web_search_20250305", "name": "web_search"}],
                 messages=messages
             )
-            
-            # Extract text from new response
-            for block in res.content:
-                if hasattr(block, "type") and block.type == "text":
-                    final_text += block.text
 
-        if not final_text:
-            # Fallback: extract any text
-            for block in res.content:
-                if hasattr(block, "type") and block.type == "text":
-                    final_text += block.text
-
-        print(f"[{a['emoji']}] Done ({len(final_text)} chars, {loop_count} search loops)")
+        print(f"[{a['emoji']}] Done ({len(final_text)} chars, {loop_count} searches)")
         return final_text if final_text else "[No response]"
 
     except Exception as e:
-        print(f"[{a['emoji']}] ERROR: {e}")
-        # Fallback without web search
+        print(f"[{a['emoji']}] Web search ERROR: {e} — retrying without search...")
         try:
-            print(f"[{a['emoji']}] Retrying without web search...")
             res2 = client.messages.create(
                 model="claude-sonnet-4-5",
                 max_tokens=1500,
