@@ -22,7 +22,7 @@ from googleapiclient.http import MediaInMemoryUpload, MediaIoBaseDownload
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-RESEND_API_KEY    = os.environ["RESEND_API_KEY"]
+RESEND_API_KEY    = os.environ.get("RESEND_API_KEY", "")
 EMAIL_RECIPIENT   = os.environ["EMAIL_RECIPIENT"]
 GDRIVE_FOLDER_ID  = os.environ.get("GDRIVE_FOLDER_ID", "")
 GDRIVE_TOKEN_JSON = os.environ.get("GDRIVE_TOKEN_JSON", "")
